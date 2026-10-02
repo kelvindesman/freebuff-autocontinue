@@ -1,0 +1,9 @@
+node_modules/
+dist/
+bin/
+*.log
+*.tmp
+.DS_Store
+.scratch/
+coverage/
+*.tsbuildinfo

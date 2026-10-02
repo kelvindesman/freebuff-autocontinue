@@ -1,0 +1,21 @@
+class FreebuffAutocontinue < Formula
+  desc "Autonomous session supervisor for Freebuff CLI with smart model fallback"
+  homepage "https://github.com/kelvin/freebuff-autocontinue"
+  url "https://github.com/kelvin/freebuff-autocontinue/archive/refs/tags/v0.1.0.tar.gz"
+  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  license "MIT"
+  head "https://github.com/kelvin/freebuff-autocontinue.git", branch: "main"
+
+  depends_on "node"
+  depends_on "tmux"
+
+  def install
+    system "npm", "install", *Language::Node.std_npm_install_args(libexec)
+    bin.install_symlink Dir["#{libexec}/bin/*"]
+  end
+
+  test do
+    assert_match "freebuff-autocontinue v", shell_output("#{bin}/freebuff-autocontinue --version")
+    assert_match "Self-test finished: 0 failures", shell_output("#{bin}/freebuff-autocontinue --self-test")
+  end
+end
