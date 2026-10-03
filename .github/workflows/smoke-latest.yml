@@ -1,0 +1,64 @@
+name: Smoke Latest
+
+# Nightly proof that whatever users get today (npm `latest`, the release
+# binary, the Homebrew tap) still installs and runs. Catches registry drift,
+# a yanked/broken publish, or a formula that no longer builds — without
+# waiting for the next release.
+on:
+  schedule:
+    # 06:17 UTC daily (off the hour so it does not pile onto :00 runners)
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npx-latest:
+    name: npx latest (self-test + dry-run)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Smoke published latest via npx
+        run: |
+          npx -y freebuff-autocontinue@latest --version
+          npx -y freebuff-autocontinue@latest --self-test
+          npx -y freebuff-autocontinue@latest --dry-run
+
+  binary-latest:
+    name: Release binary + checksum
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install latest release artifact and verify checksum
+        run: |
+          set -euo pipefail
+          OS=linux
+          ARCH=x64
+          BASE="https://github.com/${{ github.repository }}/releases/latest/download"
+          FILE="freebuff-autocontinue-${OS}-${ARCH}"
+          curl -fSL --retry 3 --connect-timeout 15 --max-time 600 "$BASE/$FILE" -o /tmp/freebuff-autocontinue
+          curl -fsSL "$BASE/SHA256SUMS.txt" -o /tmp/SHA256SUMS.txt
+          EXPECTED="$(grep "  ${FILE}\$" /tmp/SHA256SUMS.txt | awk '{print $1}')"
+          ACTUAL="$(sha256sum /tmp/freebuff-autocontinue | awk '{print $1}')"
+          test -n "$EXPECTED" || { echo "no checksum entry for $FILE"; exit 1; }
+          test "$EXPECTED" = "$ACTUAL" || { echo "checksum mismatch"; exit 1; }
+          chmod +x /tmp/freebuff-autocontinue
+          /tmp/freebuff-autocontinue --version
+          /tmp/freebuff-autocontinue --self-test
+
+  brew-latest:
+    name: Homebrew tap install
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: brew install + test from the tap
+        run: |
+          brew untap kelvindesman/freebuff-autocontinue 2>/dev/null || true
+          brew tap kelvindesman/freebuff-autocontinue https://github.com/${{ github.repository }}
+          brew install --formula kelvindesman/freebuff-autocontinue/freebuff-autocontinue
+          brew test kelvindesman/freebuff-autocontinue/freebuff-autocontinue

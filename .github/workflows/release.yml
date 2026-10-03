@@ -2,9 +2,11 @@ name: Release
 
 # Solo-dev flow: bump package.json + src/cli.ts VERSION + CHANGELOG, merge to
 # main, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
-# This workflow builds, verifies, publishes to npm (Trusted Publisher, no
-# token), attaches standalone binaries to the GitHub Release, and patches the
-# Homebrew formula with the real tarball sha256.
+#
+# This workflow publishes a PRERELEASE first, proves all five documented
+# install paths actually work, and only then promotes npm `latest`, the
+# GitHub Release, and the Homebrew formula. If any smoke path fails, users
+# never see a broken `latest`.
 on:
   push:
     tags:
@@ -37,7 +39,10 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Check tag == package.json version == cli VERSION
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check tag == package.json == cli VERSION == CHANGELOG
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           PKG="$(node -p "require('./package.json').version")"
@@ -45,15 +50,21 @@ jobs:
           echo "tag=$TAG pkg=$PKG cli=$CLI"
           test "$TAG" = "$PKG" || { echo "❌ tag v$TAG != package.json $PKG"; exit 1; }
           test "$TAG" = "$CLI" || { echo "❌ tag v$TAG != src/cli.ts $CLI"; exit 1; }
-
-      - name: Install dependencies
-        run: bun install
+          grep -q "$TAG" CHANGELOG.md || { echo "❌ $TAG missing from CHANGELOG.md"; exit 1; }
 
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Lint + spell
+        run: |
+          bun run lint
+          bun run spell
+
+      - name: Coverage gate
+        run: bun run coverage
+
       - name: Unit tests
-        run: bun test tests/ansi.test.ts tests/classifier.test.ts tests/cli.test.ts tests/community.test.ts tests/login.test.ts tests/model-picker.test.ts tests/pacific-time.test.ts tests/platform.test.ts tests/status.test.ts
+        run: bun test tests/ansi.test.ts tests/classifier.test.ts tests/cli.test.ts tests/community.test.ts tests/login.test.ts tests/model-picker.test.ts tests/pacific-time.test.ts tests/platform.test.ts tests/status.test.ts tests/status-extra.test.ts tests/telemetry.test.ts
 
       - name: Build + self-test + dry-run
         run: |
@@ -92,11 +103,74 @@ jobs:
           path: release-binaries/*
           retention-days: 90
 
-  publish-npm:
-    name: Publish to npm (Trusted Publisher)
+  # Creates the GitHub Release as a PRERELEASE (make_latest: false) and stages
+  # the Homebrew formula on a side branch, so brew users are not moved onto an
+  # unverified version.
+  github-release:
+    name: GitHub prerelease + staged formula
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: verify
+    needs: [verify, binaries]
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v5
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: freebuff-autocontinue-binaries-${{ github.ref_name }}
+          path: release-binaries
+
+      # Build a stable source tarball for Homebrew. The auto-generated
+      # `archive/refs/tags/...` tarballs are NOT checksum-stable across
+      # downloads, so the formula must point at this attached file instead.
+      - name: Create stable source tarball
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force
+          SRC="release-binaries/freebuff-autocontinue-${TAG}.tar.gz"
+          git archive --format=tar.gz \
+            --prefix="freebuff-autocontinue-${TAG#v}/" \
+            -o "$SRC" "$TAG"
+          sha256sum "$SRC"
+
+      - name: Create GitHub prerelease with binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-binaries/*
+          prerelease: true
+          make_latest: false
+          generate_release_notes: true
+
+      - name: Stage Homebrew formula on a side branch
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          SRC="release-binaries/freebuff-autocontinue-${TAG}.tar.gz"
+          TARBALL="https://github.com/${{ github.repository }}/releases/download/${TAG}/freebuff-autocontinue-${TAG}.tar.gz"
+          SHA="$(sha256sum "$SRC" | cut -d' ' -f1)"
+          echo "tarball=$TARBALL sha=$SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions-bot@users.noreply.github.com"
+          git checkout -b "formula/${TAG}"
+          python3 - "$TARBALL" "$SHA" <<'EOF'
+          import re, sys
+          tarball, sha = sys.argv[1], sys.argv[2]
+          p = "Formula/freebuff-autocontinue.rb"
+          s = open(p).read()
+          s = re.sub(r'url "https://[^"]+\.tar\.gz"', f'url "{tarball}"', s)
+          s = re.sub(r'sha256 "[0-9a-f]{64}"', f'sha256 "{sha}"', s)
+          open(p, "w").write(s)
+          EOF
+          git add Formula/freebuff-autocontinue.rb
+          git commit -m "chore(release): bump Homebrew formula to ${TAG}"
+          git push origin "HEAD:refs/heads/formula/${TAG}"
+
+  # Prerelease publish: `next` dist-tag only. Never `latest`.
+  publish-npm:
+    name: Publish to npm as prerelease (next)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [verify, github-release]
     steps:
       - name: Checkout tag
         uses: actions/checkout@v5
@@ -114,7 +188,7 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Build + verify pack contents
         run: |
@@ -124,14 +198,14 @@ jobs:
       # No NPM_TOKEN: npm Trusted Publisher links this repo+workflow to the
       # package. First release needs one clickops: npm package settings →
       # Trusted Publisher → add kelvindesman/freebuff-autocontinue + release.yml.
-      - name: Publish with provenance
-        run: npm publish --provenance --access public
+      - name: Publish prerelease under the `next` dist-tag
+        run: npm publish --provenance --access public --tag next
 
   publish-gpr:
     name: Publish to GitHub Packages
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: verify
+    needs: [verify, github-release]
     permissions:
       contents: read
       packages: write
@@ -173,61 +247,129 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  github-release:
-    name: GitHub Release + Formula bump
+  # BLOCKING GATE: every documented install path (README Quickstart) must work
+  # before anything is promoted to `latest`.
+  smoke:
+    name: Smoke ${{ matrix.path }} (${{ matrix.os }})
+    needs: [github-release, publish-npm, publish-gpr]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { path: npx, os: ubuntu-latest }
+          - { path: npx, os: macos-latest }
+          - { path: npm-global, os: ubuntu-latest }
+          - { path: curl-binary, os: ubuntu-latest }
+          - { path: curl-binary, os: macos-latest }
+          - { path: brew, os: macos-latest }
+          - { path: github-packages, os: ubuntu-latest }
+    steps:
+      - name: Resolve version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      # Option 1 in the README Quickstart.
+      - name: Smoke npx
+        if: matrix.path == 'npx'
+        run: |
+          npx -y freebuff-autocontinue@${VERSION} --version
+          npx -y freebuff-autocontinue@${VERSION} --help
+          npx -y freebuff-autocontinue@${VERSION} --self-test
+          npx -y freebuff-autocontinue@${VERSION} --dry-run
+
+      # Option 4 in the README Quickstart.
+      - name: Smoke global npm install
+        if: matrix.path == 'npm-global'
+        run: |
+          npm install -g freebuff-autocontinue@${VERSION}
+          freebuff-autocontinue --version
+          freebuff-autocontinue --self-test
+
+      # Option 3 in the README Quickstart. install.sh prefers npm and falls
+      # back to the release binary, so we verify the exact binary artifact
+      # (same URL + SHA256SUMS manifest the installer uses) here.
+      - name: Smoke curl installer artifact + checksum
+        if: matrix.path == 'curl-binary'
+        run: |
+          OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          ARCH="$(uname -m)"
+          case "$ARCH" in arm64|aarch64) ARCH=arm64 ;; x86_64|amd64) ARCH=x64 ;; *) echo "unsupported $ARCH"; exit 1 ;; esac
+          BASE="https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}"
+          FILE="freebuff-autocontinue-${OS}-${ARCH}"
+          curl -fSL --retry 3 --connect-timeout 15 --max-time 600 "$BASE/$FILE" -o /tmp/freebuff-autocontinue
+          curl -fsSL "$BASE/SHA256SUMS.txt" -o /tmp/SHA256SUMS.txt
+          EXPECTED="$(grep "  ${FILE}\$" /tmp/SHA256SUMS.txt | awk '{print $1}')"
+          ACTUAL="$(sha256sum /tmp/freebuff-autocontinue | awk '{print $1}')"
+          test -n "$EXPECTED" || { echo "no checksum entry for $FILE"; exit 1; }
+          test "$EXPECTED" = "$ACTUAL" || { echo "checksum mismatch: $EXPECTED != $ACTUAL"; exit 1; }
+          chmod +x /tmp/freebuff-autocontinue
+          /tmp/freebuff-autocontinue --version
+          /tmp/freebuff-autocontinue --self-test
+
+      # Option 2 in the README Quickstart. Installs the exact staged formula
+      # that promote will land on main.
+      - name: Smoke Homebrew formula from the staged branch
+        if: matrix.path == 'brew'
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/formula/${GITHUB_REF_NAME}/Formula/freebuff-autocontinue.rb" -o /tmp/freebuff-autocontinue.rb
+          brew install --build-from-source /tmp/freebuff-autocontinue.rb
+          brew test /tmp/freebuff-autocontinue.rb
+
+      # Option 5 in the README Quickstart.
+      - name: Smoke GitHub Packages install
+        if: matrix.path == 'github-packages'
+        run: |
+          npm install -g @kelvindesman/freebuff-autocontinue@${VERSION} --registry=https://npm.pkg.github.com
+          freebuff-autocontinue --version
+          freebuff-autocontinue --self-test
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: File issue on smoke failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "🚨 post-distribution smoke failed: ${{ github.ref_name }} (${{ matrix.path }} on ${{ matrix.os }})" \
+            --body "Release \`${{ github.ref_name }}\` is held as a **prerelease**: npm \`next\` only, GitHub release not marked latest, Homebrew formula not promoted.\n\nInstall path: \`${{ matrix.path }}\` on \`${{ matrix.os }}\`\n\nLogs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n\nThe fix lands as a new patch tag; nothing user-facing was promoted." || true
+
+  promote:
+    name: Promote to latest
+    needs: [smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [verify, binaries]
+    permissions:
+      contents: write
+      id-token: write
     steps:
-      - name: Checkout main
-        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
         with:
-          ref: main
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
 
-      - name: Download binary artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: freebuff-autocontinue-binaries-${{ github.ref_name }}
-          path: release-binaries
+      - name: Promote npm dist-tag to latest
+        run: npm dist-tag add "freebuff-autocontinue@${GITHUB_REF_NAME#v}" latest
 
-      # Build a stable source tarball for Homebrew. The auto-generated
-      # `archive/refs/tags/...` tarballs are NOT checksum-stable across
-      # downloads, so the formula must point at this attached file instead.
-      - name: Create stable source tarball
+      - name: Mark GitHub release as latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --latest --prerelease=false
+
+      - name: Promote Homebrew formula to main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force
-          SRC="release-binaries/freebuff-autocontinue-${TAG}.tar.gz"
-          git archive --format=tar.gz \
-            --prefix="freebuff-autocontinue-${TAG#v}/" \
-            -o "$SRC" "$TAG"
-          sha256sum "$SRC"
-
-      - name: Create GitHub Release with binaries
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-binaries/*
-          generate_release_notes: true
-
-      - name: Patch Homebrew formula url + sha256
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          SRC="release-binaries/freebuff-autocontinue-${TAG}.tar.gz"
-          TARBALL="https://github.com/kelvindesman/freebuff-autocontinue/releases/download/${TAG}/freebuff-autocontinue-${TAG}.tar.gz"
-          SHA="$(sha256sum "$SRC" | cut -d' ' -f1)"
-          echo "tarball=$TARBALL sha=$SHA"
-          python3 - "$TARBALL" "$SHA" <<'EOF'
-          import re, sys
-          tarball, sha = sys.argv[1], sys.argv[2]
-          p = "Formula/freebuff-autocontinue.rb"
-          s = open(p).read()
-          s = re.sub(r'url "https://[^"]+\.tar\.gz"', f'url "{tarball}"', s)
-          s = re.sub(r'sha256 "[0-9a-f]{64}"', f'sha256 "{sha}"', s)
-          open(p, "w").write(s)
-          EOF
-          git diff -- Formula/freebuff-autocontinue.rb
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/freebuff-autocontinue.rb
-          git commit -m "chore: bump Homebrew formula to ${TAG} [skip ci]" || exit 0
+          git config user.email "github-actions-bot@users.noreply.github.com"
+          git init -q .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git fetch -q --depth=1 origin main "refs/heads/formula/${GITHUB_REF_NAME}:refs/heads/staged-formula"
+          git checkout -q -B main refs/remotes/origin/main
+          git merge --ff-only refs/heads/staged-formula
           git push origin HEAD:main
