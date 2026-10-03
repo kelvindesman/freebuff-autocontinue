@@ -5,6 +5,11 @@ All notable changes to `freebuff-autocontinue` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-10-03
+
+### Fixed
+- **Silent no-op via symlinked bin (critical)**: the direct-execution guard compared `import.meta.url` to raw `process.argv[1]`, which never matches when invoked through `bin` symlinks (all of `npm -g`, `brew`, `npx`). CLI exited 0 with no output. Now compares resolved realpaths. (The v0.1.4 `exitCode` change is kept as good hygiene.)
+
 ## [0.1.4] - 2026-10-03
 
 ### Fixed

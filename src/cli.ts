@@ -5,6 +5,8 @@
 
 import { parseArgs } from "node:util";
 import fs from "node:fs";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_TEXT,
   DEFAULT_MODEL,
@@ -24,7 +26,7 @@ import {
 
 // NOTE: keep in sync with package.json "version".
 // The tag-driven release workflow (release.yml) fails the build if they drift.
-const VERSION = "0.1.4";
+const VERSION = "0.1.5";
 
 const SAMPLE_TRANSCRIPT = [
   "agent finished editing src/payroll.ts",
@@ -353,10 +355,19 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 }
 
 // Auto-run if executed directly.
+// NOTE: compare realpaths — global installs (npm -g, brew, npx) invoke the
+// CLI through bin symlinks, so a naive `import.meta.url === argv[1]` check
+// never matches and the CLI silently does nothing (exit 0, no output).
 // NOTE: set exitCode instead of calling process.exit(): an explicit exit()
-// can truncate piped stdout (e.g. `freebuff-autocontinue --version | head`,
-// CI log capture, `brew test`), producing silent empty output.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// can truncate piped stdout (CI log capture, `brew test`).
+const entryArg = process.argv[1] ?? "";
+let entryReal = entryArg;
+try {
+  entryReal = realpathSync(entryArg);
+} catch {
+  // keep raw arg (e.g. `node -e`) — comparison below will simply miss
+}
+if (entryArg && fileURLToPath(import.meta.url) === entryReal) {
   main().then((code) => {
     process.exitCode = code;
   });
