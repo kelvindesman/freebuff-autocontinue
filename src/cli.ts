@@ -360,14 +360,19 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 // never matches and the CLI silently does nothing (exit 0, no output).
 // NOTE: set exitCode instead of calling process.exit(): an explicit exit()
 // can truncate piped stdout (CI log capture, `brew test`).
-const entryArg = process.argv[1] ?? "";
-let entryReal = entryArg;
-try {
-  entryReal = realpathSync(entryArg);
-} catch {
-  // keep raw arg (e.g. `node -e`) — comparison below will simply miss
+export function shouldAutoRun(entryArg: string, metaUrl: string): boolean {
+  if (!entryArg) return false;
+  let entryReal = entryArg;
+  try {
+    entryReal = realpathSync(entryArg);
+  } catch {
+    // keep raw arg (e.g. `node -e`) — comparison below will simply miss
+  }
+  return fileURLToPath(metaUrl) === entryReal;
 }
-if (entryArg && fileURLToPath(import.meta.url) === entryReal) {
+
+const entryArg = process.argv[1] ?? "";
+if (shouldAutoRun(entryArg, import.meta.url)) {
   main().then((code) => {
     process.exitCode = code;
   });
