@@ -59,6 +59,12 @@ export const LOGIN_PATTERNS = [
 export const LOGIN_URL_RE =
   /https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:freebuff\.com|codebuff\.com)\/(?:login|auth)[^\s"'>]*/i;
 
+// Interactive question modal: agent calls ask_question mid-turn waiting for user selection
+export const QUESTION_PATTERNS = [
+  /Some questions for you/i,
+  /↑↓ navigate • Enter select/i,
+];
+
 // Self-update notifications
 export const UPDATE_PATTERNS = [
   /Update available:.*→/i,

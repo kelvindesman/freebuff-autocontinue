@@ -14,6 +14,7 @@ import {
   UPDATE_PATTERNS,
   STOP_PATTERNS,
   BALANCE_RE,
+  QUESTION_PATTERNS,
 } from "./constants.js";
 
 export interface StatusInfo {
@@ -32,6 +33,7 @@ export interface ClassificationResult {
     | "fallback-accept"
     | "paywall"
     | "login"
+    | "question"
     | "update"
     | `stop:${string}`
     | null;
@@ -57,6 +59,40 @@ export function isIdleReady(text: string): boolean {
   return COMPOSER_RE.test(text);
 }
 
+export function extractQuestion(text: string): string {
+  const cleaned = stripAnsi(text);
+  if (!cleaned.includes("Some questions for you") && !cleaned.includes("Enter select")) {
+    return "";
+  }
+  const lines = cleaned.split("\n");
+  let inBox = false;
+  const boxLines: string[] = [];
+  for (const line of lines) {
+    if (line.includes("Some questions for you")) {
+      inBox = true;
+      continue;
+    }
+    if (inBox) {
+      if (line.includes("╰") && line.includes("─")) {
+        break;
+      }
+      const clean = line.replace(/^[│\s]+|[│\s]+$/g, "");
+      if (
+        !clean ||
+        clean.startsWith("↑↓") ||
+        clean.startsWith("╭") ||
+        clean.startsWith("╰") ||
+        clean.startsWith("Submit") ||
+        clean.startsWith("Close")
+      ) {
+        continue;
+      }
+      boxLines.push(clean);
+    }
+  }
+  return boxLines.join("\n").trim();
+}
+
 export function extractStatus(pane: string): StatusInfo {
   const text = stripAnsi(pane);
   const isWorking = isWorkingState(text);
@@ -66,11 +102,9 @@ export function extractStatus(pane: string): StatusInfo {
   let balance: StatusInfo["balance"];
 
   // Check for working... indicator and elapsed time
-  const matches = text.matchAll(/working\.\.\.(?:\s*([0-9]+[mshd]\s*[0-9]*[s]?))?/gi);
-  for (const wm of matches) {
-    if (wm[1]) {
-      elapsed = wm[1].trim();
-    }
+  const wm = text.match(/working\.\.\.(?:\s*([0-9smhd\s]+?))(?:\s*■\s*Esc|$)/i);
+  if (wm && wm[1]) {
+    elapsed = wm[1].trim();
   }
 
   // Look for model line
@@ -121,6 +155,33 @@ export function extractStatus(pane: string): StatusInfo {
     }
   }
 
+  // If working but no active command or bullet found, extract current assistant output line
+  if (isWorking && !activeStep) {
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 25); i--) {
+      const line = lines[i];
+      if (
+        line.startsWith("╭") ||
+        line.startsWith("│") ||
+        line.startsWith("╰") ||
+        line.startsWith("working...") ||
+        line.startsWith("DeepSeek") ||
+        line.startsWith("←") ||
+        line.startsWith("Chat:") ||
+        line.startsWith("and verified") ||
+        line.startsWith("▍")
+      ) {
+        continue;
+      }
+      if (line.length > 3) {
+        activeStep = `generating: "${line.slice(0, 50)}"`;
+        break;
+      }
+    }
+    if (!activeStep) {
+      activeStep = "generating response...";
+    }
+  }
+
   return { isWorking, elapsed, activeStep, model, balance };
 }
 
@@ -155,6 +216,12 @@ export function classify(text: string): ClassificationResult {
     }
   }
 
+  for (const rx of QUESTION_PATTERNS) {
+    if (rx.test(clean)) {
+      return { action: "question", detail: "interactive-question-modal" };
+    }
+  }
+
   for (const [rx, reason] of STOP_PATTERNS) {
     if (rx.test(clean)) {
       return {
@@ -164,20 +231,26 @@ export function classify(text: string): ClassificationResult {
     }
   }
 
-  for (const rx of FIRST_PROMPT_PATTERNS) {
-    if (rx.test(clean)) {
-      return { action: "first-prompt", detail: rx.source.slice(0, 40) };
-    }
-  }
-
   for (const rx of UPDATE_PATTERNS) {
     if (rx.test(clean)) {
       return { action: "update", detail: rx.source.slice(0, 40) };
     }
   }
 
+  // IMPORTANT: idle check MUST come before first-prompt.
+  // When the session cycles to a fresh "Enter a coding task" prompt after
+  // completing a turn, both first-prompt and idle would match. If first-prompt
+  // wins, watch() silently skips it (initial_sent=True) and idle is never
+  // reached — the script goes deaf. Checking idle first ensures auto-continue
+  // fires correctly.
   if (isIdleReady(clean)) {
     return { action: "idle", detail: "turn-completed" };
+  }
+
+  for (const rx of FIRST_PROMPT_PATTERNS) {
+    if (rx.test(clean)) {
+      return { action: "first-prompt", detail: rx.source.slice(0, 40) };
+    }
   }
 
   return { action: null, detail: "" };

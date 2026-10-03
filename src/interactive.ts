@@ -105,3 +105,51 @@ export async function promptMidRunAccountSwitch(): Promise<"switch" | "wait" | "
     rl.close();
   }
 }
+
+export async function promptUserChoice(timeoutSec = 30): Promise<string> {
+  if (!process.stdin.isTTY || timeoutSec <= 0) {
+    return "1";
+  }
+
+  process.stdout.write(
+    `\n[autocontinue] Enter option (1-9), press Enter for default/recommended, or 'a' to attach [timeout ${timeoutSec}s]: `
+  );
+
+  return new Promise<string>((resolve) => {
+    const rl = readline.createInterface({ input, output });
+    let resolved = false;
+
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        try {
+          rl.close();
+        } catch {}
+        console.log("\n[autocontinue] Timeout reached — auto-selecting recommended option (1).");
+        resolve("1");
+      }
+    }, timeoutSec * 1000);
+
+    rl.question("").then((answer) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        try {
+          rl.close();
+        } catch {}
+        const trimmed = answer.trim();
+        resolve(trimmed || "1");
+      }
+    }).catch(() => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        try {
+          rl.close();
+        } catch {}
+        resolve("1");
+      }
+    });
+  });
+}
+
