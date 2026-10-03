@@ -46,23 +46,28 @@ RELEASE_URL="${RELEASE_BASE}/freebuff-autocontinue-${BINARY_SUFFIX}"
 
 mkdir -p "$INSTALL_DIR"
 
-# Check if npm is available as an alternative install method
+# Prefer npm when the package is published there (fast, tiny download).
+# Output is silenced: a 404 just means "not on npmjs yet", fall through.
 if command -v npm >/dev/null 2>&1; then
-  echo "📦 Node.js & npm detected. Installing via npm..."
-  if npm install -g freebuff-autocontinue; then
+  echo "📦 Trying npm registry first..."
+  if npm install -g freebuff-autocontinue >/dev/null 2>&1; then
     echo "✅ Successfully installed globally via npm!"
     INSTALLED_VIA_NPM=1
   else
-    echo "⚠️ npm install failed, falling back to standalone binary..."
+    echo "ℹ️ Not available via npm (yet) — falling back to standalone binary (~60MB download)..."
   fi
 fi
 
 if [ -z "${INSTALLED_VIA_NPM:-}" ]; then
   echo "⬇️ Downloading standalone binary for ${OS}-${ARCH}..."
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$RELEASE_URL" -o "$TARGET_PATH"
+    # Progress bar (not silent) + retries + timeouts so big binaries
+    # never look stalled.
+    curl -fSL --progress-bar --retry 3 --retry-all-errors \
+      --connect-timeout 15 --max-time 600 \
+      "$RELEASE_URL" -o "$TARGET_PATH"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$TARGET_PATH" "$RELEASE_URL"
+    wget --progress=bar --tries=3 --timeout=15 -O "$TARGET_PATH" "$RELEASE_URL"
   else
     echo "❌ Neither curl nor wget found. Install one and retry."
     exit 1
