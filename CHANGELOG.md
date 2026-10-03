@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--help`, `--self-test`, and `--dry-run`: npx (ubuntu + macos), global npm, curl binary
   with SHA256SUMS verification (ubuntu + macos), Homebrew build + `brew test`, and GitHub
   Packages. A failing path holds the release, opens an issue, and never moves users.
+- **One-command releases** (`bun run release <version>`, `bun run release:tag <version>`):
+  `scripts/release.mjs` bumps `package.json`, `src/cli.ts` `VERSION`, and the `CHANGELOG`
+  heading together, runs the full gate, then branches, commits, pushes, and opens the PR.
+  It refuses a dirty tree, a non-`main` branch, a version that is not newer than the last
+  release, drifted version files, or an existing tag. Both commands accept `--dry-run`.
 - **Repository rulesets**: `main: PR + gate required` (PR-only, 1 approval,
   code-owner review, dismiss stale reviews, conversation resolution, squash-only
   merge, no force pushes/deletions, required checks: lint/spell/types/coverage,

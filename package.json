@@ -30,6 +30,8 @@
     "coverage": "node scripts/coverage-gate.mjs",
     "gate:fast": "bun run lint && bun run typecheck",
     "gate": "bun run gate:fast && bun run spell && bun run coverage && bun run build && node dist/cli.js --self-test && node dist/cli.js --dry-run && npm pack --dry-run",
+    "release": "node scripts/release.mjs",
+    "release:tag": "node scripts/release.mjs --tag",
     "prepare": "(husky || true) && (npm run build || true)"
   },
   "keywords": [

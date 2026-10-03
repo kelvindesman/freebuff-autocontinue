@@ -87,11 +87,33 @@ By contributing you agree that your work is licensed under the
 
 ## Release Runbook (maintainer-only, solo-dev, tag-driven)
 
-1. Bump `package.json` `"version"`, `src/cli.ts` `VERSION`, and add a
-   `CHANGELOG.md` entry for the tag (the workflow fails if these drift).
-2. Merge to `main` via PR (CI must be green).
-3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-4. `release.yml` then automatically:
+Two commands and two PR merges. `scripts/release.mjs` owns the three
+release-owned files, so you never hand-edit them and they cannot drift.
+
+```bash
+# 1. Bump + gate + branch + PR (from a clean, up-to-date main)
+bun run release 0.2.0            # or: bun run release minor
+
+# 2. Merge the PR on GitHub, then:
+git pull --ff-only
+bun run release:tag 0.2.0       # verifies, tags, pushes -> publish starts
+```
+
+Add `--dry-run` to either to check everything and change nothing.
+
+The script refuses to run on a dirty tree, off `main`, on a version that is not
+newer than the last release, when `package.json` and `src/cli.ts` disagree, or
+when the tag already exists locally or on origin. It never pushes to `main`,
+never tags without `--tag`, and never bypasses a hook.
+
+What it does, in order: bumps `package.json` `"version"`, `src/cli.ts`
+`VERSION`, and promotes `## [Unreleased]` to `## [X.Y.Z] - date` in
+`CHANGELOG.md`; runs the full gate; commits to `release/vX.Y.Z`; pushes and
+opens the PR.
+
+Then:
+
+1. `release.yml` triggers on the tag and automatically:
    - verifies tag == package.json == cli VERSION == CHANGELOG, runs the full gate
    - compiles 5 standalone binaries + `SHA256SUMS.txt`
    - creates a **prerelease** GitHub release and stages the Homebrew formula
@@ -104,11 +126,11 @@ By contributing you agree that your work is licensed under the
      release latest, then opens a promotion PR for the staged formula (the
      `main` ruleset blocks all direct pushes, automated ones included, so the
      maintainer merges that PR like any other change)
-5. If any smoke path fails, the release stays a prerelease, an issue is
+2. If any smoke path fails, the release stays a prerelease, an issue is
    opened automatically, and users are never given a broken `latest`.
-6. Merge the formula promotion PR to finish the Homebrew publish.
-7. First release only: link npm Trusted Publisher once (npm package settings
+3. Merge the formula promotion PR to finish the Homebrew publish.
+4. First release only: link npm Trusted Publisher once (npm package settings
    → Trusted Publisher → repo `kelvindesman/freebuff-autocontinue`, workflow
    `release.yml`).
-8. Optional drift check: the `Smoke Latest` workflow runs nightly against
+5. Optional drift check: the `Smoke Latest` workflow runs nightly against
    whatever is currently published.
