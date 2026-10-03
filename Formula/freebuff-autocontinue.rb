@@ -17,7 +17,9 @@ class FreebuffAutocontinue < Formula
   depends_on "tmux"
 
   def install
-    system "npm", "install", *Language::Node.std_npm_args(libexec)
+    # NOTE: `brew audit` suggests `std_npm_args`, but that API does not exist
+    # in Homebrew <= 7.0.7 (including this machine). Revisit on core feedback.
+    system "npm", "install", *Language::Node.std_npm_install_args(libexec)
 
     # Homebrew's npm install omits devDependencies, but the build needs them
     # (esbuild). Install them deterministically from the committed lockfile,
