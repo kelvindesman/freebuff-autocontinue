@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { main, selfTest, shouldAutoRun } from "../src/cli.js";
+import { checkPlatform } from "../src/platform.js";
 
 describe("cli", () => {
   it("passes built-in self-test suite", () => {
@@ -75,6 +76,13 @@ describe("cli", () => {
   });
 
   it("refuses to attach when no session exists", async () => {
+    const { hasTmux } = checkPlatform();
+    if (!hasTmux) {
+      // The pure-logic unit job installs no tmux, so main() exits 3 at the
+      // platform check before it can reach the attach branch.
+      expect(await main(["--attach", "--session", "no-such-session-98765"])).toBe(3);
+      return;
+    }
     expect(await main(["--attach", "--session", "no-such-session-98765"])).toBe(1);
   });
 
