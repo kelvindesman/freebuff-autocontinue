@@ -55,7 +55,7 @@ bun run gate        # the full gate (what pre-push and CI run)
 
 | Rule | Enforced by |
 | :--- | :--- |
-| Conventional commits | `commit-msg` hook (commitlint) + PR title lint |
+| Conventional commits | `commit-msg` hook, CI `commit-messages` job (catches `--no-verify`), PR title lint |
 | Lint / format | `pre-commit` hook (Biome) + CI `gate` job |
 | Types | `tsc --noEmit` in `gate:fast` + CI |
 | Coverage 100% | `scripts/coverage-gate.mjs` in `gate` |
@@ -66,6 +66,21 @@ bun run gate        # the full gate (what pre-push and CI run)
 | Release integrity | `release.yml` verify job (tag == package.json == cli VERSION == CHANGELOG) |
 | No broken release to users | prerelease → 5-path smoke gate → promote `latest` |
 | Ownership / review | `CODEOWNERS` (`* @kelvindesman`) |
+
+## Why hooks are not the whole story
+
+Git hooks are always bypassable (`--no-verify`, `core.hooksPath`, or simply
+not installing them). So the local hooks are a convenience, and the real
+enforcement is:
+
+1. the CI `gate` job runs the identical checks,
+2. the CI `commit-messages` job lints commit messages even when the
+   `commit-msg` hook was skipped,
+3. branch protection requires the `gate` check plus a maintainer approval
+   before anything merges to `main`.
+
+That is also why rule 3 above matters: a bypassed hook still ends in a red
+CI run, so the honest response is to fix the code, not to bypass again.
 
 ## Things that will get a PR closed
 

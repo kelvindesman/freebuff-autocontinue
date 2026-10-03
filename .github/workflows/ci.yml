@@ -81,6 +81,37 @@ jobs:
             style
             revert
 
+  # Anti-bypass net: git hooks are trivially skipped with --no-verify, but the
+  # commit messages of a PR are still checkable here. This catches an agent (or
+  # a human) that committed with --no-verify and a non-conventional message.
+  commit-messages:
+    name: Conventional commit messages
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install commitlint
+        run: npm install --no-save --no-audit --no-fund @commitlint/cli @commitlint/config-conventional
+
+      - name: Lint commit messages in this range
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base commit available (initial push); skipping."
+            exit 0
+          fi
+          npx commitlint --from "$BASE" --to "${{ github.sha }}" --verbose
+
   unit:
     name: Unit (${{ matrix.os }} - Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
