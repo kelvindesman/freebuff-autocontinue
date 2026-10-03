@@ -42,6 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AGENTS.md` agent contract, `CODEOWNERS`, PR + issue templates.
 
 ### Fixed
+- **Release smoke gate**: the blocked `v0.2.0` run exposed three defects in
+  `release.yml`, all fixed:
+  - a new `await-registries` job polls npmjs *and* GitHub Packages until the new
+    version is actually resolvable. The `v0.2.0` smoke matrix failed with
+    `notarget` seconds after a successful publish, because both registries are
+    eventually consistent from a fresh runner.
+  - the GitHub Packages smoke now writes the `.npmrc` auth entry it needs. It set
+    `NODE_AUTH_TOKEN` but npm does not read that variable on its own, so the
+    install failed with `401 ... authentication token not provided`.
+  - the Homebrew smoke taps this repository and checks out the staged
+    `formula/vX.Y.Z` branch instead of `brew install --build-from-source <path>.rb`,
+    which Homebrew >= 5 rejects ("Homebrew requires formulae to be in a tap").
 - **Mid-turn keystroke injection**: `classify()` had no working-state guard, so a stale
   session-ended / paywall / fallback banner retained by `capture-pane -S -200` could fire a
   send *while the agent was working*. Hard stops now take precedence over everything else,

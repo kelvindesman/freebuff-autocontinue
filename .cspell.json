@@ -71,6 +71,7 @@
 		"msystem",
 		"MSYSTEM",
 		"negotiables",
+		"notarget",
 		"npmjs",
 		"npx",
 		"Ollama",
