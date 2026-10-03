@@ -23,7 +23,7 @@
     "test:e2e": "bun test tests/e2e.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'No lint errors'",
-    "prepare": "bun run build || true"
+    "prepare": "npm run build || true"
   },
   "keywords": [
     "freebuff",

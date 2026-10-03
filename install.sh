@@ -41,7 +41,8 @@ case "$OS" in
 esac
 
 BINARY_SUFFIX="${OS}-${ARCH}"
-RELEASE_URL="https://github.com/${REPO}/releases/latest/download/freebuff-autocontinue-${BINARY_SUFFIX}"
+RELEASE_BASE="https://github.com/${REPO}/releases/latest/download"
+RELEASE_URL="${RELEASE_BASE}/freebuff-autocontinue-${BINARY_SUFFIX}"
 
 mkdir -p "$INSTALL_DIR"
 
@@ -67,26 +68,36 @@ if [ -z "${INSTALLED_VIA_NPM:-}" ]; then
     exit 1
   fi
 
-  # Verify checksum when the release publishes one alongside the binary
-  if command -v curl >/dev/null 2>&1; then
-    if curl -fsSL "${RELEASE_URL}.sha256" -o "${TARGET_PATH}.sha256" 2>/dev/null; then
+  # Verify checksum against the release SHA256SUMS.txt manifest
+  SUMS_TMP="$(mktemp)"
+  if curl -fsSL "${RELEASE_BASE}/SHA256SUMS.txt" -o "$SUMS_TMP" 2>/dev/null; then
+    BIN_FILE="freebuff-autocontinue-${BINARY_SUFFIX}"
+    EXPECTED="$(grep "  ${BIN_FILE}\$" "$SUMS_TMP" | awk '{print $1}' || true)"
+    if [ -n "$EXPECTED" ]; then
       if command -v sha256sum >/dev/null 2>&1; then
-        (cd "$(dirname "$TARGET_PATH")" && sha256sum -c "$(basename "${TARGET_PATH}.sha256")") || {
-          echo "❌ Checksum mismatch for $TARGET_PATH. Aborting."
-          rm -f "$TARGET_PATH" "${TARGET_PATH}.sha256"
-          exit 1
-        }
-        rm -f "${TARGET_PATH}.sha256"
+        ACTUAL="$(sha256sum "$TARGET_PATH" | awk '{print $1}')"
       elif command -v shasum >/dev/null 2>&1; then
-        (cd "$(dirname "$TARGET_PATH")" && shasum -a 256 -c "$(basename "${TARGET_PATH}.sha256")") || {
-          echo "❌ Checksum mismatch for $TARGET_PATH. Aborting."
-          rm -f "$TARGET_PATH" "${TARGET_PATH}.sha256"
-          exit 1
-        }
-        rm -f "${TARGET_PATH}.sha256"
+        ACTUAL="$(shasum -a 256 "$TARGET_PATH" | awk '{print $1}')"
+      else
+        ACTUAL=""
+        echo "⚠️ No sha256 tool found; skipping checksum verification."
       fi
+      if [ -n "${ACTUAL:-}" ] && [ "$ACTUAL" != "$EXPECTED" ]; then
+        echo "❌ Checksum mismatch for $TARGET_PATH. Aborting."
+        echo "   expected: $EXPECTED"
+        echo "   actual:   $ACTUAL"
+        rm -f "$TARGET_PATH" "$SUMS_TMP"
+        exit 1
+      elif [ -n "${ACTUAL:-}" ]; then
+        echo "✅ Checksum verified (sha256:$ACTUAL)"
+      fi
+    else
+      echo "⚠️ No checksum entry for ${BIN_FILE}; skipping verification."
     fi
+  else
+    echo "⚠️ Could not fetch SHA256SUMS.txt; skipping checksum verification."
   fi
+  rm -f "$SUMS_TMP"
 
   if [ -f "$TARGET_PATH" ] && [ -s "$TARGET_PATH" ]; then
     chmod +x "$TARGET_PATH"
