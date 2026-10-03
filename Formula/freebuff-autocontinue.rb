@@ -29,8 +29,14 @@ class FreebuffAutocontinue < Formula
     system "npm", "install", "--prefix=#{libexec}", "--no-save",
            "--no-audit", "--no-fund", *build_tools
 
+    # Build with absolute paths (no cwd dependence): mirrors `npm run build`.
     pkgdir = libexec/"lib/node_modules/freebuff-autocontinue"
-    system "npm", "run", "build", "--prefix=#{pkgdir}"
+    esbuild = libexec/"node_modules/.bin/esbuild"
+    system esbuild, "#{pkgdir}/src/cli.ts", "--bundle", "--platform=node",
+           "--format=esm", "--outfile=#{pkgdir}/dist/cli.js"
+    system esbuild, "#{pkgdir}/src/index.ts", "--bundle", "--platform=node",
+           "--format=esm", "--outfile=#{pkgdir}/dist/index.js"
+    chmod "+x", pkgdir/"dist/cli.js"
     bin.install_symlink pkgdir/"dist/cli.js" => "freebuff-autocontinue"
   end
 
