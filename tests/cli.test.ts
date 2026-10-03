@@ -1,9 +1,10 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { selfTest, main, shouldAutoRun } from "../src/cli.js";
+import { main, selfTest, shouldAutoRun } from "../src/cli.js";
+import { checkPlatform } from "../src/platform.js";
 
 describe("cli", () => {
   it("passes built-in self-test suite", () => {
@@ -40,5 +41,106 @@ describe("cli", () => {
     expect(shouldAutoRun(link, pathToFileURL(link).href)).toBe(false);
     expect(shouldAutoRun("", realUrl)).toBe(false);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("falls back to the raw entry arg when realpath fails", () => {
+    // A missing entry path makes realpathSync throw; the guard must keep the
+    // raw arg and still compare unequal. Both sides are built with
+    // pathToFileURL: a hand-written "file:///nope" is a valid URL on POSIX but
+    // throws on Windows ("File URL path must be an absolute path").
+    const missing = path.join(os.tmpdir(), "definitely-not-here-12345");
+    const otherUrl = pathToFileURL(path.join(os.tmpdir(), "some-other-file")).href;
+    expect(shouldAutoRun(missing, otherUrl)).toBe(false);
+  });
+
+  it("runs the built-in self-test through main()", async () => {
+    expect(await main(["--self-test"])).toBe(0);
+  });
+
+  it("reports telemetry status without touching tmux", async () => {
+    expect(await main(["--telemetry-status"])).toBe(0);
+  });
+
+  it("records and clears telemetry consent", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "fb-cli-tel-"));
+    const prev = process.env.FREEBUFF_AUTOCONTINUE_HOME;
+    process.env.FREEBUFF_AUTOCONTINUE_HOME = home;
+    try {
+      expect(await main(["--telemetry-opt-in"])).toBe(0);
+      expect(await main(["--telemetry-status"])).toBe(0);
+      expect(await main(["--telemetry-opt-out"])).toBe(0);
+    } finally {
+      if (prev === undefined) delete process.env.FREEBUFF_AUTOCONTINUE_HOME;
+      else process.env.FREEBUFF_AUTOCONTINUE_HOME = prev;
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("classifies the sample transcript in dry-run mode", async () => {
+    // --dry-run must never touch tmux or the network.
+    expect(await main(["--dry-run"])).toBe(0);
+  });
+
+  it("refuses to attach when no session exists", async () => {
+    const { hasTmux } = checkPlatform();
+    if (!hasTmux) {
+      // The pure-logic unit job installs no tmux, so main() exits 3 at the
+      // platform check before it can reach the attach branch.
+      expect(await main(["--attach", "--session", "no-such-session-98765"])).toBe(3);
+      return;
+    }
+    expect(await main(["--attach", "--session", "no-such-session-98765"])).toBe(1);
+  });
+
+  it("prefers --text over every other text source", async () => {
+    const prev = process.env.FREEBUFF_CONTINUE_TEXT;
+    process.env.FREEBUFF_CONTINUE_TEXT = "from the environment";
+    try {
+      const logs: string[] = [];
+      const realLog = console.log;
+      console.log = (...a: unknown[]) => logs.push(a.join(" "));
+      try {
+        expect(await main(["--dry-run", "--text", "explicit wins"])).toBe(0);
+      } finally {
+        console.log = realLog;
+      }
+      expect(logs.join("\n")).toContain("explicit wins");
+      expect(logs.join("\n")).not.toContain("from the environment");
+    } finally {
+      if (prev === undefined) delete process.env.FREEBUFF_CONTINUE_TEXT;
+      else process.env.FREEBUFF_CONTINUE_TEXT = prev;
+    }
+  });
+
+  it("reads resume text from --text-file", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fb-cli-text-"));
+    const file = path.join(dir, "task.txt");
+    fs.writeFileSync(file, "  do the thing  \n", "utf8");
+    const logs: string[] = [];
+    const realLog = console.log;
+    console.log = (...a: unknown[]) => logs.push(a.join(" "));
+    try {
+      expect(await main(["--dry-run", "--text-file", file])).toBe(0);
+    } finally {
+      console.log = realLog;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    expect(logs.join("\n")).toContain("do the thing");
+  });
+
+  it("falls back to FREEBUFF_CONTINUE_TEXT", async () => {
+    const prev = process.env.FREEBUFF_CONTINUE_TEXT;
+    process.env.FREEBUFF_CONTINUE_TEXT = "  environment text  ";
+    const logs: string[] = [];
+    const realLog = console.log;
+    console.log = (...a: unknown[]) => logs.push(a.join(" "));
+    try {
+      expect(await main(["--dry-run"])).toBe(0);
+    } finally {
+      console.log = realLog;
+      if (prev === undefined) delete process.env.FREEBUFF_CONTINUE_TEXT;
+      else process.env.FREEBUFF_CONTINUE_TEXT = prev;
+    }
+    expect(logs.join("\n")).toContain("environment text");
   });
 });

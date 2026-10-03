@@ -23,7 +23,7 @@ export const FIRST_PROMPT_PATTERNS = [
 
 // Composer prompt indicator (union, e.g. login-complete detection)
 export const COMPOSER_RE =
-  /(Enter a coding task|Add to the current task)(\s*\(?\/[\s*]for commands\)?)?/i;
+  /(Enter a coding task|Add to the current task)(\s*\(?\/\s*for commands\)?)?/i;
 
 // Fresh landing prompt vs post-turn idle prompt.
 // Fresh boots show "Enter a coding task"; completed turns show
@@ -51,9 +51,7 @@ export const CONTINUE_PATTERNS = [
 ];
 
 // Fallback accept recommendation
-export const FALLBACK_ACCEPT_PATTERNS = [
-  /Press Enter to continue with (.+)/i,
-];
+export const FALLBACK_ACCEPT_PATTERNS = [/Press Enter to continue with (.+)/i];
 
 // Paywall & limit patterns
 export const PAYWALL_PATTERNS = [
@@ -80,10 +78,7 @@ export const QUESTION_PATTERNS = [
 ];
 
 // Self-update notifications
-export const UPDATE_PATTERNS = [
-  /Update available:.*→/i,
-  /Download complete! Starting/i,
-];
+export const UPDATE_PATTERNS = [/Update available:.*→/i, /Download complete! Starting/i];
 
 // Continue session identifier
 export const CONTINUE_ID_RE = /freebuff --continue (\S+)/i;
@@ -101,7 +96,8 @@ export const STOP_PATTERNS: Array<[RegExp, string]> = [
 
 // Model picker rows & pricing regexes
 export const PRICE_RE = /(\d[\d,]*)\s+Freebucks\/hr/i;
-export const ZERO_COST_RE = /(?:\b0\s+Freebucks\/hr|\bUNLIMITED\b|\bunmetered\b|\bFREE\b)/i;
+export const ZERO_COST_RE =
+  /(?:\b0\s+Freebucks\/hr|\bUNLIMITED\b|\bunmetered\b|\bFREE\b)/i;
 export const LOCKED_RE = /Paid plan|Included with a paid plan/i;
 export const UNAVAILABLE_RE = /closed|unavailable|TEST\b|Price subject to change/i;
 export const BALANCE_RE = /([\d,]+)\/([\d,]+)\s+Freebucks remaining/i;

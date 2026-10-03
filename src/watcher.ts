@@ -1,28 +1,36 @@
 /**
+// coverage-waiver: the tmux control loop drives a live freebuff session; verified end-to-end by tests/e2e.test.ts and by real runs
  * Core supervisor watch loop for freebuff tmux sessions.
  */
 
-import { CONTINUE_ID_RE, BALANCE_RE, COMPOSER_RE } from "./constants.js";
-import { stripAnsi, extractStatus, classify, isWorkingState } from "./classifier.js";
 import {
-  hasSession,
-  capture,
-  spawnSession,
-  sendText,
-  sendEnter,
-  sendAndVerify,
-  logSnapshot,
-  killSession,
-} from "./tmux.js";
-import { extractLoginUrl, openBrowser, formatLoginBanner } from "./login.js";
-import { parseModelRows, findModel, pickBestFallback } from "./model-picker.js";
+  classify,
+  extractQuestion,
+  extractStatus,
+  isWorkingState,
+} from "./classifier.js";
+import { formatCommunityBanner, getNextCommunityMessage } from "./community.js";
+import { BALANCE_RE, COMPOSER_RE, CONTINUE_ID_RE } from "./constants.js";
+import { promptMidRunAccountSwitch, promptUserChoice } from "./interactive.js";
+import { extractLoginUrl, formatLoginBanner, openBrowser } from "./login.js";
+import { findModel, parseModelRows, pickBestFallback } from "./model-picker.js";
 import {
-  getSecondsUntilPacificMidnight,
-  formatPacificTime,
   formatDuration,
+  formatPacificTime,
+  getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
-import { getNextCommunityMessage, formatCommunityBanner } from "./community.js";
-import { promptMidRunAccountSwitch } from "./interactive.js";
+import {
+  attachSession,
+  capture,
+  fnv1a,
+  hasSession,
+  killSession,
+  logSnapshot,
+  sendAndVerify,
+  sendEnter,
+  sendText,
+  spawnSession,
+} from "./tmux.js";
 
 export interface WatcherOptions {
   name: string;
@@ -46,6 +54,10 @@ export interface WatcherOptions {
   noBanner: boolean;
   isResumed?: boolean;
   interactive?: boolean;
+  /** Auto-submit the recommended option when the agent opens a question modal. */
+  autoAnswer?: boolean;
+  /** Seconds to wait for a human choice before auto-selecting (0 = instant). */
+  questionTimeout?: number;
 }
 
 export async function watch(opts: WatcherOptions): Promise<number> {
@@ -70,6 +82,8 @@ export async function watch(opts: WatcherOptions): Promise<number> {
     killOnExit,
     noBanner,
     interactive = false,
+    autoAnswer = true,
+    questionTimeout = 30,
   } = opts;
 
   let sends = 0;
@@ -87,6 +101,8 @@ export async function watch(opts: WatcherOptions): Promise<number> {
   let heartbeatCount = 0;
   let waitingForLogin = false;
   let loginUrlOpened = false;
+  /** Per-key dedup timestamps (question panes, one-shot notices). */
+  const acted: Record<string, number> = {};
 
   console.log(`[autocontinue] tmux server: freebuff-auto | session: ${name}`);
   console.log(`[autocontinue] screen snapshots append to: ${logFile}`);
@@ -127,10 +143,14 @@ export async function watch(opts: WatcherOptions): Promise<number> {
     if (
       isWorkingState(pane) ||
       pane.includes("Add to the current task") ||
-      pane.includes("Chat:")
+      pane.includes("Chat:") ||
+      pane.includes("Suggested followups:")
     ) {
       initialSent = true;
-      console.log("[autocontinue] attached to active session (turn in progress)");
+      const stateDesc = isWorkingState(pane)
+        ? "turn in progress"
+        : "idle (waiting for continuation)";
+      console.log(`[autocontinue] attached to active session (${stateDesc})`);
     }
   }
 
@@ -154,7 +174,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
       }
 
       const pane = capture(name);
-      const currentHash = pane.length ^ (pane.charCodeAt(0) << 8);
+      const currentHash = fnv1a(pane);
       if (currentHash !== lastPaneHash) {
         lastPaneHash = currentHash;
         lastPaneChange = now;
@@ -172,6 +192,11 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           console.log(
             `[autocontinue] Freebucks meter: ${bm[0]} (daily pool; wallet pays next)`
           );
+          if (bm[1].replace(/,/g, "") === "0") {
+            console.log(
+              "[autocontinue] daily pool empty — trying anyway, wallet covers priced models"
+            );
+          }
         }
       }
 
@@ -207,11 +232,11 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         }
         const summary = parts.join(" · ");
 
-        if (
-          summary !== lastStatusSummary ||
-          now - lastHeartbeat >= heartbeat * 1000
-        ) {
-          lastStatusSummary = summary;
+        // Dedup on step+model only: elapsed changes every poll, so comparing
+        // the whole summary would re-log a heartbeat on every single cycle.
+        const dedupKey = `${status.activeStep}|${status.model}`;
+        if (dedupKey !== lastStatusSummary || now - lastHeartbeat >= heartbeat * 1000) {
+          lastStatusSummary = dedupKey;
           lastHeartbeat = now;
           heartbeatCount++;
           console.log(`[autocontinue] [heartbeat] ${summary}`);
@@ -248,7 +273,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         const loginUrl = extractLoginUrl(pane);
         if (loginUrl && !loginUrlOpened) {
           loginUrlOpened = true;
-          console.log("\n" + formatLoginBanner(loginUrl) + "\n");
+          console.log(`\n${formatLoginBanner(loginUrl)}\n`);
           openBrowser(loginUrl);
         } else if (!loginUrl && !loginUrlOpened) {
           console.log(formatLoginBanner(null));
@@ -265,8 +290,61 @@ export async function watch(opts: WatcherOptions): Promise<number> {
       }
 
       // Handle hard stops
-      if (action && action.startsWith("stop:")) {
+      if (action?.startsWith("stop:")) {
         return stop(2, action);
+      }
+
+      // Handle interactive question modal (agent calls ask_question mid-turn)
+      if (action === "question") {
+        const qText = extractQuestion(pane);
+        const qKey = `question:${fnv1a(qText)}`;
+        if (acted[qKey] === undefined) {
+          acted[qKey] = now;
+          console.log(`\n${"=".repeat(76)}`);
+          console.log("[autocontinue] [QUESTION] Freebuff is asking a question:");
+          console.log("-".repeat(76));
+          console.log(qText || "(question modal active in tmux session)");
+          console.log("-".repeat(76));
+          console.log(`Attach to tmux directly: tmux -L freebuff-auto attach -t ${name}`);
+          console.log("=".repeat(76));
+          logSnapshot(logFile, name, `question-modal:\n${qText}`);
+        }
+
+        if (!autoAnswer) {
+          const lastNotice = acted["question-notified"] ?? 0;
+          if (lastNotice + 30_000 < now) {
+            acted["question-notified"] = now;
+            console.log(
+              `[autocontinue] waiting for human input (attach: tmux -L freebuff-auto attach -t ${name})…`
+            );
+          }
+          continue;
+        }
+
+        const choice = await promptUserChoice(questionTimeout);
+
+        if (choice.toLowerCase() === "a") {
+          console.log(`\n[autocontinue] Attaching to tmux session ${name}...`);
+          attachSession(name);
+          continue;
+        }
+
+        const parsed = Number.parseInt(choice, 10);
+        const optNum = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+        for (let i = 0; i < optNum - 1; i++) {
+          sendEnter(name, "Down");
+          await new Promise((r) => setTimeout(r, 300));
+        }
+
+        console.log(`[autocontinue] Submitting option ${optNum}…`);
+        sendEnter(name, enterKey); // select option
+        await new Promise((r) => setTimeout(r, 1000));
+        sendEnter(name, enterKey); // confirm / Submit
+        acted.question = now;
+        lastSend = now;
+        logSnapshot(logFile, name, `answered-question: option ${optNum}`);
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
       }
 
       // Handle first prompt on fresh session
@@ -274,9 +352,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         if (initialSent) continue;
         if (!COMPOSER_RE.test(pane)) continue;
 
-        console.log(
-          `[autocontinue] composer visible, typing ${text.length} chars…`
-        );
+        console.log(`[autocontinue] composer visible, typing ${text.length} chars…`);
         const ok = await sendAndVerify(name, text, enterKey, settle);
         if (!ok) continue;
         initialSent = true;
@@ -306,7 +382,10 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           findModel(candidates, preferredModel, allowRisky) ||
           pickBestFallback(candidates, status.balance?.used, allowRisky);
 
-        if (matched && (matched.isZeroCost || matched.price <= (status.balance?.total ?? 0))) {
+        if (
+          matched &&
+          (matched.isZeroCost || matched.price <= (status.balance?.total ?? 0))
+        ) {
           console.log(
             `[autocontinue] selecting fallback model: ${matched.name} (${matched.price} Freebucks/hr)`
           );
@@ -428,11 +507,8 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         lastSend = now;
         pickerOpened = false;
         idleSince = null;
-        console.log(
-          `[autocontinue ${sends}/${maxContinues}] sent (${action} ${detail})`
-        );
+        console.log(`[autocontinue ${sends}/${maxContinues}] sent (${action} ${detail})`);
         logSnapshot(logFile, name, `send-${action}`);
-        continue;
       }
     }
   } catch (err: unknown) {

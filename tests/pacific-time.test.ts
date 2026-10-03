@@ -1,9 +1,9 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import {
-  getSecondsUntilPacificMidnight,
-  formatPacificTime,
   formatDuration,
+  formatPacificTime,
   getPacificDateTimeParts,
+  getSecondsUntilPacificMidnight,
 } from "../src/pacific-time.js";
 
 describe("pacific-time", () => {

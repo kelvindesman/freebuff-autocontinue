@@ -5,6 +5,56 @@ All notable changes to `freebuff-autocontinue` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Blocking post-distribution smoke gate**: releases now publish as a *prerelease*
+  (npm `next` dist-tag, GitHub prerelease, formula staged on `formula/vX.Y.Z`) and are
+  promoted to `latest` only after all five documented install paths pass `--version`,
+  `--help`, `--self-test`, and `--dry-run`: npx (ubuntu + macos), global npm, curl binary
+  with SHA256SUMS verification (ubuntu + macos), Homebrew build + `brew test`, and GitHub
+  Packages. A failing path holds the release, opens an issue, and never moves users.
+- **Repository rulesets**: `main: PR + gate required` (PR-only, 1 approval,
+  code-owner review, dismiss stale reviews, conversation resolution, squash-only
+  merge, no force pushes/deletions, required checks: lint/spell/types/coverage,
+  conventional commit messages, conventional PR title) and
+  `tags: v* restricted to maintainer` (tag create/update/delete limited to the
+  maintainer). The release workflow now opens a formula promotion PR instead of
+  pushing to `main`, since the ruleset blocks automated direct pushes.
+- **Nightly `Smoke Latest` workflow**: re-verifies the currently published npm `latest`,
+  release binary, and Homebrew tap daily.
+- **Question modal handling**: the supervisor now detects an `ask_question` modal, prints
+  the question, and answers it (`--auto-answer`, `--question-timeout`, `--no-auto-answer`;
+  `a` at the prompt attaches for a human answer).
+- **Opt-in telemetry** (`--telemetry-opt-in` / `--telemetry-opt-out` / `--telemetry-status`):
+  default OFF, anonymous, locally inspectable JSONL, no prompts/paths/URLs ever collected.
+  Documented in [TELEMETRY.md](./TELEMETRY.md).
+- **Biome** lint + format, **commitlint** conventional commits, **husky** hooks
+  (`pre-commit` = lint + typecheck, `commit-msg` = commitlint, `pre-push` = full gate), and
+  a **100% line-coverage gate** (`bun run coverage`) with explicit, reviewed waivers.
+- `AGENTS.md` agent contract, `CODEOWNERS`, PR + issue templates.
+
+### Fixed
+- **Mid-turn keystroke injection**: `classify()` had no working-state guard, so a stale
+  session-ended / paywall / fallback banner retained by `capture-pane -S -200` could fire a
+  send *while the agent was working*. Hard stops now take precedence over everything else,
+  and any working pane returns "no action".
+- **Hard stop precedence**: bans/caps were detected *after* paywall/login checks, so a
+  "banned" banner could be misread as a recoverable state.
+- **Pane-change hash collisions**: `length ^ firstChar` treated screens differing deep in
+  the buffer as unchanged, silently defeating the stall watchdog. Now FNV-1a over the
+  whole pane.
+- **Heartbeat spam**: dedup compared the full summary including the elapsed timer (which
+  changes every poll), logging a heartbeat each cycle instead of on real step changes.
+- `COMPOSER_RE` had a character-class typo (`[\s*]`) that stopped matching the real
+  `(/ for commands)` composer text.
+- Resuming a session that was idle at the "Suggested followups:" prompt no longer
+  re-sends the initial task text.
+- `splitCommand`: quoted `--cmd "freebuff --flag 'a b'"` arguments are now honored
+  (previously split on whitespace, breaking quoted paths/args).
+- Empty-pool notice: `0/N Freebucks remaining` is now reported without blocking.
+- Login banner box alignment (the `👉` glyph is double-width).
+
 ## [0.1.8] - 2026-10-03
 
 ### Changed

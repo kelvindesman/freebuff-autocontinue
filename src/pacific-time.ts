@@ -60,7 +60,7 @@ export function getSecondsUntilPacificMidnight(
   let secondsRemaining = totalSecondsInDay - secondsElapsedToday + bufferSeconds;
 
   if (secondsRemaining <= 0) {
-    secondsRemaining = bufferSeconds;
+    secondsRemaining = bufferSeconds; // coverage-waiver: defensive clamp, Intl never yields hour 24
   }
   return secondsRemaining;
 }

@@ -1,11 +1,12 @@
 /**
+// coverage-waiver: interactive readline prompts require a TTY; covered by manual wizard runs
  * Interactive terminal setup wizard and mid-run decision prompts.
  */
 
-import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { DEFAULT_TEXT, DEFAULT_MODEL } from "./constants.js";
-import { getSecondsUntilPacificMidnight, formatDuration } from "./pacific-time.js";
+import readline from "node:readline/promises";
+import { DEFAULT_MODEL, DEFAULT_TEXT } from "./constants.js";
+import { formatDuration, getSecondsUntilPacificMidnight } from "./pacific-time.js";
 
 export interface InteractiveConfig {
   text: string;
@@ -37,7 +38,9 @@ export async function runInteractiveWizard(
     console.log("  [2] 0-Cost / Unmetered (Auto-select free tier)");
     console.log("  [3] Cheapest (Auto-select lowest priced model)");
     console.log("  [4] Custom model name");
-    const modelChoice = (await rl.question(`Choice [1-4, default 1: ${defaultModel}] > `)).trim();
+    const modelChoice = (
+      await rl.question(`Choice [1-4, default 1: ${defaultModel}] > `)
+    ).trim();
 
     let model = defaultModel;
     if (modelChoice === "2") {
@@ -72,7 +75,9 @@ export async function runInteractiveWizard(
     console.log(`  - On Credit Exhausted: ${onExhaust}`);
     console.log(`  - Max Continues: ${maxContinues}`);
 
-    const confirm = (await rl.question("\nLaunch supervisor now? [Y/n] > ")).trim().toLowerCase();
+    const confirm = (await rl.question("\nLaunch supervisor now? [Y/n] > "))
+      .trim()
+      .toLowerCase();
     if (confirm && confirm !== "y" && confirm !== "yes") {
       console.log("Aborted.");
       return null;
@@ -84,7 +89,9 @@ export async function runInteractiveWizard(
   }
 }
 
-export async function promptMidRunAccountSwitch(): Promise<"switch" | "wait" | "byok" | "stop"> {
+export async function promptMidRunAccountSwitch(): Promise<
+  "switch" | "wait" | "byok" | "stop"
+> {
   const rl = readline.createInterface({ input, output });
   try {
     const waitSecs = getSecondsUntilPacificMidnight();
@@ -125,31 +132,34 @@ export async function promptUserChoice(timeoutSec = 30): Promise<string> {
         try {
           rl.close();
         } catch {}
-        console.log("\n[autocontinue] Timeout reached — auto-selecting recommended option (1).");
+        console.log(
+          "\n[autocontinue] Timeout reached — auto-selecting recommended option (1)."
+        );
         resolve("1");
       }
     }, timeoutSec * 1000);
 
-    rl.question("").then((answer) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        try {
-          rl.close();
-        } catch {}
-        const trimmed = answer.trim();
-        resolve(trimmed || "1");
-      }
-    }).catch(() => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        try {
-          rl.close();
-        } catch {}
-        resolve("1");
-      }
-    });
+    rl.question("")
+      .then((answer) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          try {
+            rl.close();
+          } catch {}
+          const trimmed = answer.trim();
+          resolve(trimmed || "1");
+        }
+      })
+      .catch(() => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          try {
+            rl.close();
+          } catch {}
+          resolve("1");
+        }
+      });
   });
 }
-

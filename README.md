@@ -5,7 +5,7 @@
 [![Dependencies](https://img.shields.io/badge/dependencies-0%20(zero)-brightgreen.svg?style=flat-square)](./package.json)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20(WSL)-lightgrey.svg?style=flat-square)](#platform-compatibility)
 [![CI Matrix](https://img.shields.io/badge/CI-Ubuntu%20%7C%20macOS%20%7C%20Windows-success.svg?style=flat-square)](./.github/workflows/ci.yml)
-[![Telemetry](https://img.shields.io/badge/telemetry-100%25%20local%20(none)-blueviolet.svg?style=flat-square)](#is-this-secure)
+[![Telemetry](https://img.shields.io/badge/telemetry-off%20by%20default%20(opt--in)-blueviolet.svg?style=flat-square)](#is-this-secure)
 
 > **Autonomous session supervisor for the [Freebuff CLI](https://freebuff.com/cli) AI coding agent.**  
 > Runs inside a detached, isolated `tmux` session with smart model fallback, Pacific Midnight refill scheduling, graceful midway account switching, and zero external runtime dependencies.
@@ -145,6 +145,23 @@ freebuff-autocontinue --attach
 ```
 *(Detach anytime with `Ctrl+B, d` without interrupting the supervisor).*
 
+### 8. Question Handling (`--auto-answer`)
+When the agent pauses mid-turn to ask a question, the supervisor prints the
+question, then submits the recommended option:
+```text
+============================================================================
+[autocontinue] [QUESTION] Freebuff is asking a question:
+----------------------------------------------------------------------------
+Which ticket should I pick?
+----------------------------------------------------------------------------
+Attach to tmux directly: tmux -L freebuff-auto attach -t fb-auto
+============================================================================
+```
+- Press `1`-`9` then Enter to pick an option, or `a` to attach and answer yourself.
+- No input within `--question-timeout` seconds → the recommended option is submitted.
+- `--no-auto-answer` never answers; it waits for a human (with a nudge every 30s).
+- `--question-timeout 0` answers immediately without waiting.
+
 ---
 
 ## 🔒 Is This Secure?
@@ -154,7 +171,7 @@ freebuff-autocontinue --attach
 1. **Zero Runtime Dependencies**: The package specifies `"dependencies": {}`. No third-party npm libraries are downloaded or executed at runtime, eliminating supply-chain attack vectors.
 2. **Dedicated Socket Isolation**: Runs in `tmux -L freebuff-auto`, completely isolated from your personal tmux sessions.
 3. **No Shell Injection**: Subprocesses are spawned using discrete argument arrays (`child_process.spawnSync("tmux", ["-L", ...])`). Never passes strings to `/bin/sh`.
-4. **100% Local & No Telemetry**: Absolutely no data, prompts, or credentials are sent over any external network.
+4. **Local by Default, Opt-In Telemetry**: No data leaves your machine unless you opt in with `--telemetry-opt-in`. Even then, only version, platform, flag names, duration, exit code, and sanitized crash classes are recorded — never prompts, paths, or URLs. See [TELEMETRY.md](./TELEMETRY.md).
 5. **Ethical Compliance**: Fully complies with [freebuff.com](https://freebuff.com) and [freebuff.com/web](https://freebuff.com/web) terms. Halts on bans (`banned`), country blocks (`country-blocked`), or IP caps (`ip-capped`).
 
 For more details, see [SECURITY.md](./SECURITY.md).
@@ -190,6 +207,12 @@ For more details, see [SECURITY.md](./SECURITY.md).
 | `--kill-on-exit` | `boolean` | `false` | Kill tmux session on exit (default leaves running) |
 | `--allow-risky` | `boolean` | `false` | Consider TEST/peak-window tiers in model fallback |
 | `--no-banner` | `boolean` | `false` | Silence rotating community reminders |
+| `--auto-answer` | `boolean` | `true` | Auto-submit the recommended option when the agent asks a question |
+| `--no-auto-answer` | `boolean` | `false` | Never auto-answer questions; wait for a human to attach |
+| `--question-timeout` | `sec` | `30` | Seconds to wait for a human choice before auto-selecting (`0` = instant) |
+| `--telemetry-opt-in` | `boolean` | `false` | Opt in to anonymous usage + crash reports |
+| `--telemetry-opt-out` | `boolean` | `false` | Opt out and clear stored consent |
+| `--telemetry-status` | `boolean` | `false` | Print the current telemetry consent state |
 | `--attach` | `boolean` | `false` | Attach directly to the tmux session |
 | `--self-test` | `boolean` | `false` | Run internal pattern detection tests |
 | `--dry-run` | `boolean` | `false` | Classify sample transcript and preview actions |

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import {
+  formatCommunityBanner,
   getNextCommunityMessage,
   resetCommunityMessageIndex,
-  formatCommunityBanner,
 } from "../src/community.js";
 import { COMMUNITY_MESSAGES } from "../src/constants.js";
 

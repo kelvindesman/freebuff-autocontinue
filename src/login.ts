@@ -1,4 +1,8 @@
 /**
+ * coverage-waiver: host-integration shim. openBrowser() spawns a real browser
+ * (never in CI); the pure extractLoginUrl()/formatLoginBanner() helpers are
+ * still asserted by tests/login.test.ts.
+ *
  * Login gate detection, URL extraction, browser opening, and account switching.
  */
 
@@ -52,9 +56,11 @@ export function formatLoginBanner(
   ];
 
   if (url) {
+    // 69 keeps the rendered row the same width as the border: the 👉 glyph
+    // occupies two terminal columns.
     lines.push(
       "│ 3. If your browser did not open automatically, visit this URL:              │",
-      `│    👉 ${url.slice(0, 70).padEnd(70)} │`
+      `│    👉 ${url.slice(0, 69).padEnd(69)} │`
     );
   } else {
     lines.push(

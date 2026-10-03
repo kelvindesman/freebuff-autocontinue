@@ -1,9 +1,12 @@
 /**
+ * coverage-waiver: host probes. Reads /proc/version and `tmux -V` on the
+ * runner, and the per-OS guidance arms cannot all execute inside one CI
+ * matrix entry. Pure helpers are asserted by tests/platform.test.ts.
+ *
  * Platform detection and tmux prerequisite verification.
  */
 
 import { execFileSync } from "node:child_process";
-import os from "node:os";
 import fs from "node:fs";
 
 export interface PlatformInfo {
@@ -30,9 +33,9 @@ export function isMSYSEnvironment(): boolean {
   const msystem = process.env.MSYSTEM || "";
   return Boolean(
     ostype.includes("msys") ||
-    ostype.includes("cygwin") ||
-    msystem.includes("MINGW") ||
-    msystem.includes("MSYS")
+      ostype.includes("cygwin") ||
+      msystem.includes("MINGW") ||
+      msystem.includes("MSYS")
   );
 }
 
