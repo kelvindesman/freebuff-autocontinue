@@ -29,10 +29,9 @@ class FreebuffAutocontinue < Formula
     system "npm", "install", "--prefix=#{libexec}", "--no-save",
            "--no-audit", "--no-fund", *build_tools
 
-    cd libexec/"lib/node_modules/freebuff-autocontinue" do
-      system "npm", "run", "build"
-    end
-    bin.install_symlink libexec/"lib/node_modules/freebuff-autocontinue/dist/cli.js" => "freebuff-autocontinue"
+    pkgdir = libexec/"lib/node_modules/freebuff-autocontinue"
+    system "npm", "run", "build", "--prefix=#{pkgdir}"
+    bin.install_symlink pkgdir/"dist/cli.js" => "freebuff-autocontinue"
   end
 
   test do
