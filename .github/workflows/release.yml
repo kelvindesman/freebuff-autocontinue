@@ -190,6 +190,19 @@ jobs:
           name: freebuff-autocontinue-binaries-${{ github.ref_name }}
           path: release-binaries
 
+      # Build a stable source tarball for Homebrew. The auto-generated
+      # `archive/refs/tags/...` tarballs are NOT checksum-stable across
+      # downloads, so the formula must point at this attached file instead.
+      - name: Create stable source tarball
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force
+          SRC="release-binaries/freebuff-autocontinue-${TAG}.tar.gz"
+          git archive --format=tar.gz \
+            --prefix="freebuff-autocontinue-${TAG#v}/" \
+            -o "$SRC" "$TAG"
+          sha256sum "$SRC"
+
       - name: Create GitHub Release with binaries
         uses: softprops/action-gh-release@v2
         with:
@@ -199,8 +212,9 @@ jobs:
       - name: Patch Homebrew formula url + sha256
         run: |
           TAG="${GITHUB_REF_NAME}"
-          TARBALL="https://github.com/kelvindesman/freebuff-autocontinue/archive/refs/tags/${TAG}.tar.gz"
-          SHA="$(curl -fsSL "$TARBALL" | sha256sum | cut -d' ' -f1)"
+          SRC="release-binaries/freebuff-autocontinue-${TAG}.tar.gz"
+          TARBALL="https://github.com/kelvindesman/freebuff-autocontinue/releases/download/${TAG}/freebuff-autocontinue-${TAG}.tar.gz"
+          SHA="$(sha256sum "$SRC" | cut -d' ' -f1)"
           echo "tarball=$TARBALL sha=$SHA"
           python3 - "$TARBALL" "$SHA" <<'EOF'
           import re, sys

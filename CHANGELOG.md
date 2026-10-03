@@ -5,6 +5,13 @@ All notable changes to `freebuff-autocontinue` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-10-03
+
+### Fixed
+- **Homebrew checksum stability**: GitHub auto-generated tag tarballs are not checksum-stable, so the formula now points at a release-attached source tarball built with `git archive` (deterministic per tag).
+- Installer UX: progress bar + retries + timeouts for the ~60MB binary, quiet npm fallback.
+- Regression test for symlinked `bin` autorun.
+
 ## [0.1.5] - 2026-10-03
 
 ### Fixed
