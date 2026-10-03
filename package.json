@@ -22,8 +22,15 @@
     "test": "bun test tests/",
     "test:e2e": "bun test tests/e2e.test.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'No lint errors'",
-    "prepare": "npm run build || true"
+    "lint": "biome check src tests scripts",
+    "lint:fix": "biome check --write src tests scripts",
+    "format": "biome format --write src tests scripts",
+    "format:check": "biome format src tests scripts",
+    "spell": "cspell --no-progress --no-summary",
+    "coverage": "node scripts/coverage-gate.mjs",
+    "gate:fast": "bun run lint && bun run typecheck",
+    "gate": "bun run gate:fast && bun run spell && bun run coverage && bun run build && node dist/cli.js --self-test && node dist/cli.js --dry-run && npm pack --dry-run",
+    "prepare": "(husky || true) && (npm run build || true)"
   },
   "keywords": [
     "freebuff",
@@ -52,8 +59,13 @@
   "homepage": "https://github.com/kelvindesman/freebuff-autocontinue#readme",
   "dependencies": {},
   "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@types/node": "^22.0.0",
+    "cspell": "^10.3.6",
     "esbuild": "^0.28.2",
+    "husky": "^9.1.7",
     "typescript": "^5.6.0"
   },
   "engines": {
