@@ -5,6 +5,12 @@ All notable changes to `freebuff-autocontinue` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-10-03
+
+### Fixed
+- **Packaging (critical)**: `bin` target used `./dist/cli.js`, which npm strips at publish time (published package had no executable). Changed to `dist/cli.js`; `npm publish --dry-run` is now warning-free. Affects npmjs and GitHub Packages installs.
+- Canonical `repository.url` in `git+https` form to silence npm normalization.
+
 ## [0.1.2] - 2026-10-03
 
 ### Fixed
