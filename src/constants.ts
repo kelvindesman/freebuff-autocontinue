@@ -21,9 +21,23 @@ export const FIRST_PROMPT_PATTERNS = [
   /Enter a coding task or \/ for commands/i,
 ];
 
-// Composer prompt indicator
+// Composer prompt indicator (union, e.g. login-complete detection)
 export const COMPOSER_RE =
   /(Enter a coding task|Add to the current task)(\s*\(?\/[\s*]for commands\)?)?/i;
+
+// Fresh landing prompt vs post-turn idle prompt.
+// Fresh boots show "Enter a coding task"; completed turns show
+// "Add to the current task". Splitting them lets classify()
+// tell a new session apart from a turn-completed one even though
+// tmux scrollback (`capture-pane -S -200`) retains stale landing lines.
+export const FRESH_COMPOSER_RE = /Enter a coding task/i;
+export const IDLE_COMPOSER_RE = /Add to the current task/i;
+
+// Evidence that at least one turn has run. When present, a lingering
+// "Enter a coding task" / "Your first message..." line is stale
+// scrollback, not a fresh landing — classify as idle instead.
+export const TURN_EVIDENCE_RE =
+  /Received task|Received continuation|working\.\.\.|Add to the current task|Session ended|■\s*Esc|• Thinking|• Edit /i;
 
 // Working / thinking indicator
 export const WORKING_RE = /(working\.\.\.|■\s*Esc)/i;

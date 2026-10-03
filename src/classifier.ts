@@ -5,7 +5,9 @@
 import {
   ANSI_RE,
   FIRST_PROMPT_PATTERNS,
-  COMPOSER_RE,
+  FRESH_COMPOSER_RE,
+  IDLE_COMPOSER_RE,
+  TURN_EVIDENCE_RE,
   WORKING_RE,
   CONTINUE_PATTERNS,
   FALLBACK_ACCEPT_PATTERNS,
@@ -56,7 +58,16 @@ export function isIdleReady(text: string): boolean {
   if (isWorkingState(text)) {
     return false;
   }
-  return COMPOSER_RE.test(text);
+  const clean = stripAnsi(text);
+  if (IDLE_COMPOSER_RE.test(clean)) {
+    return true;
+  }
+  // Post-turn reuse of the fresh prompt: stale landing text plus proof a
+  // turn already ran means the composer is idle, not a fresh boot.
+  if (FRESH_COMPOSER_RE.test(clean) && TURN_EVIDENCE_RE.test(clean)) {
+    return true;
+  }
+  return false;
 }
 
 export function extractQuestion(text: string): string {
@@ -237,20 +248,28 @@ export function classify(text: string): ClassificationResult {
     }
   }
 
-  // IMPORTANT: idle check MUST come before first-prompt.
-  // When the session cycles to a fresh "Enter a coding task" prompt after
-  // completing a turn, both first-prompt and idle would match. If first-prompt
-  // wins, watch() silently skips it (initial_sent=True) and idle is never
-  // reached — the script goes deaf. Checking idle first ensures auto-continue
-  // fires correctly.
+  // Fresh landing vs turn-completed disambiguation.
+  // tmux `capture-pane -S -200` retains stale landing lines, so a pane can
+  // match BOTH first-prompt and idle patterns. Use turn evidence to decide:
+  // - no turn ran yet -> "first-prompt" (watch() sends initial task text)
+  // - a turn already ran -> "idle" (watch() sends continuation text).
+  // This keeps auto-continue firing without going deaf on post-turn reuse
+  // of the "Enter a coding task" prompt.
+  const hasFirstPrompt = FIRST_PROMPT_PATTERNS.some((rx) => rx.test(clean));
+  const hasTurnEvidence = TURN_EVIDENCE_RE.test(clean);
+
+  if (hasFirstPrompt && !hasTurnEvidence) {
+    const rx = FIRST_PROMPT_PATTERNS.find((r) => r.test(clean))!;
+    return { action: "first-prompt", detail: rx.source.slice(0, 40) };
+  }
+
   if (isIdleReady(clean)) {
     return { action: "idle", detail: "turn-completed" };
   }
 
-  for (const rx of FIRST_PROMPT_PATTERNS) {
-    if (rx.test(clean)) {
-      return { action: "first-prompt", detail: rx.source.slice(0, 40) };
-    }
+  if (hasFirstPrompt) {
+    const rx = FIRST_PROMPT_PATTERNS.find((r) => r.test(clean))!;
+    return { action: "first-prompt", detail: rx.source.slice(0, 40) };
   }
 
   return { action: null, detail: "" };

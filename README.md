@@ -26,14 +26,14 @@ npx freebuff-autocontinue --text "continue tests, push to main and verify @.scra
 
 ### Option 2: Homebrew (`brew`)
 ```bash
-brew tap kelvin/freebuff-autocontinue https://github.com/kelvin/freebuff-autocontinue
+brew tap kelvindesman/freebuff-autocontinue https://github.com/kelvindesman/freebuff-autocontinue
 brew install freebuff-autocontinue
 ```
 
 ### Option 3: One-Line Installer (`curl | bash`)
 Installs the standalone native binary to `~/.local/bin` (no Node.js or Python required on host!):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kelvin/freebuff-autocontinue/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kelvindesman/freebuff-autocontinue/main/install.sh | bash
 ```
 
 ### Option 4: Global npm
@@ -212,7 +212,7 @@ For more details, see [SECURITY.md](./SECURITY.md).
 If `freebuff-autocontinue` saves you time and keeps your autonomous coding agent productive, please consider supporting the project:
 
 - ☕ **Buy Me a Coffee**: [buymeacoffee.com/kelvindsmn](https://buymeacoffee.com/kelvindsmn)
-- ⭐ **Star the Project**: Give us a star on [GitHub](https://github.com/kelvin/freebuff-autocontinue)
+- ⭐ **Star the Project**: Give us a star on [GitHub](https://github.com/kelvindesman/freebuff-autocontinue)
 - 💼 **Paid Ads, Sponsorships or Collab**: DM `@kelvindsmn` or open an inquiry
 - 💬 **Discord Community**: Join fellow developers and maintainers on [Discord](https://discord.gg/cR5PgByzw)
 

@@ -38,14 +38,18 @@
   ],
   "author": "Kelvin & Contributors",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/kelvin/freebuff-autocontinue.git"
+    "url": "https://github.com/kelvindesman/freebuff-autocontinue.git"
   },
   "bugs": {
-    "url": "https://github.com/kelvin/freebuff-autocontinue/issues"
+    "url": "https://github.com/kelvindesman/freebuff-autocontinue/issues"
   },
-  "homepage": "https://github.com/kelvin/freebuff-autocontinue#readme",
+  "homepage": "https://github.com/kelvindesman/freebuff-autocontinue#readme",
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.0.0",

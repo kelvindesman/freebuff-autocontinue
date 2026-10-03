@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # install.sh — One-line installer for freebuff-autocontinue
-# Usage: curl -fsSL https://raw.githubusercontent.com/kelvin/freebuff-autocontinue/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/kelvindesman/freebuff-autocontinue/main/install.sh | bash
 
-set -e
+set -euo pipefail
 
-REPO="kelvin/freebuff-autocontinue"
+REPO="kelvindesman/freebuff-autocontinue"
 INSTALL_DIR="${HOME}/.local/bin"
 BIN_NAME="freebuff-autocontinue"
 TARGET_PATH="${INSTALL_DIR}/${BIN_NAME}"
@@ -48,36 +48,55 @@ mkdir -p "$INSTALL_DIR"
 # Check if npm is available as an alternative install method
 if command -v npm >/dev/null 2>&1; then
   echo "📦 Node.js & npm detected. Installing via npm..."
-  if npm install -g freebuff-autocontinue 2>/dev/null; then
+  if npm install -g freebuff-autocontinue; then
     echo "✅ Successfully installed globally via npm!"
     INSTALLED_VIA_NPM=1
+  else
+    echo "⚠️ npm install failed, falling back to standalone binary..."
   fi
 fi
 
-if [ -z "$INSTALLED_VIA_NPM" ]; then
+if [ -z "${INSTALLED_VIA_NPM:-}" ]; then
   echo "⬇️ Downloading standalone binary for ${OS}-${ARCH}..."
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$RELEASE_URL" -o "$TARGET_PATH" 2>/dev/null || true
+    curl -fsSL "$RELEASE_URL" -o "$TARGET_PATH"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$TARGET_PATH" "$RELEASE_URL" 2>/dev/null || true
+    wget -qO "$TARGET_PATH" "$RELEASE_URL"
+  else
+    echo "❌ Neither curl nor wget found. Install one and retry."
+    exit 1
+  fi
+
+  # Verify checksum when the release publishes one alongside the binary
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsSL "${RELEASE_URL}.sha256" -o "${TARGET_PATH}.sha256" 2>/dev/null; then
+      if command -v sha256sum >/dev/null 2>&1; then
+        (cd "$(dirname "$TARGET_PATH")" && sha256sum -c "$(basename "${TARGET_PATH}.sha256")") || {
+          echo "❌ Checksum mismatch for $TARGET_PATH. Aborting."
+          rm -f "$TARGET_PATH" "${TARGET_PATH}.sha256"
+          exit 1
+        }
+        rm -f "${TARGET_PATH}.sha256"
+      elif command -v shasum >/dev/null 2>&1; then
+        (cd "$(dirname "$TARGET_PATH")" && shasum -a 256 -c "$(basename "${TARGET_PATH}.sha256")") || {
+          echo "❌ Checksum mismatch for $TARGET_PATH. Aborting."
+          rm -f "$TARGET_PATH" "${TARGET_PATH}.sha256"
+          exit 1
+        }
+        rm -f "${TARGET_PATH}.sha256"
+      fi
+    fi
   fi
 
   if [ -f "$TARGET_PATH" ] && [ -s "$TARGET_PATH" ]; then
     chmod +x "$TARGET_PATH"
     echo "✅ Standalone binary installed to $TARGET_PATH"
   else
-    echo "⚠️ Binary download fallback: fetching release bundle..."
-    # Fallback to local build if inside clone
-    if [ -f "./bin/freebuff-autocontinue" ]; then
-      cp "./bin/freebuff-autocontinue" "$TARGET_PATH"
-      chmod +x "$TARGET_PATH"
-      echo "✅ Installed from local build to $TARGET_PATH"
-    else
-      echo "Please install via npx or npm:"
-      echo "  npx freebuff-autocontinue"
-      echo "  npm install -g freebuff-autocontinue"
-      exit 0
-    fi
+    echo "❌ Binary download failed."
+    echo "Please install via npx or npm:"
+    echo "  npx freebuff-autocontinue"
+    echo "  npm install -g freebuff-autocontinue"
+    exit 1
   fi
 fi
 

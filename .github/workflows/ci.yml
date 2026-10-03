@@ -1,4 +1,4 @@
-name: CI & Cross-Platform Matrix
+name: CI
 
 on:
   push:
@@ -6,24 +6,54 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    name: Test (${{ matrix.os }} - Node ${{ matrix.node }})
+  unit:
+    name: Unit (${{ matrix.os }} - Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [18, 20, 22, 24]
-
+        node: [20, 22, 24]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js ${{ matrix.node }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Run unit tests (excludes tmux E2E)
+        shell: bash
+        run: bun test tests/ansi.test.ts tests/classifier.test.ts tests/cli.test.ts tests/community.test.ts tests/login.test.ts tests/model-picker.test.ts tests/pacific-time.test.ts tests/platform.test.ts tests/status.test.ts tests/tmux.test.ts
+
+  e2e:
+    name: E2E (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -38,50 +68,42 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install tmux
 
-      - name: Run Unit Tests
-        run: bun test tests/
+      - name: Run E2E tests
+        run: bun test tests/e2e.test.ts
 
-      - name: Run E2E Tests (Unix)
-        if: runner.os != 'Windows'
-        run: bun run test:e2e
-
-      - name: Build Distribution
-        run: bun run build
-
-      - name: Verify CLI Self-Test
-        run: node dist/cli.js --self-test
-
-      - name: Verify CLI Dry-Run
-        run: node dist/cli.js --dry-run
-
-  compile:
-    name: Build & Upload Release Binaries
-    runs-on: ubuntu-latest
-    needs: test
+  build:
+    name: Build & verify CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Build JavaScript Dist
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Build distribution
         run: bun run build
 
-      - name: Compile Native Standalone Binaries
-        run: |
-          mkdir -p release-binaries
-          bun build --compile --target=bun-darwin-arm64 --outfile release-binaries/freebuff-autocontinue-darwin-arm64 src/cli.ts
-          bun build --compile --target=bun-darwin-x64 --outfile release-binaries/freebuff-autocontinue-darwin-x64 src/cli.ts
-          bun build --compile --target=bun-linux-x64 --outfile release-binaries/freebuff-autocontinue-linux-x64 src/cli.ts
-          bun build --compile --target=bun-linux-arm64 --outfile release-binaries/freebuff-autocontinue-linux-arm64 src/cli.ts
-          bun build --compile --target=bun-windows-x64 --outfile release-binaries/freebuff-autocontinue-windows-x64.exe src/cli.ts
+      - name: Verify CLI self-test
+        run: node dist/cli.js --self-test
 
-      - name: Upload Cross-Platform Binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: freebuff-autocontinue-binaries
-          path: release-binaries/*
-          retention-days: 14
+      - name: Verify CLI dry-run
+        run: node dist/cli.js --dry-run
+
+      - name: Verify npm pack contents
+        run: npm pack --dry-run

@@ -5,6 +5,14 @@ All notable changes to `freebuff-autocontinue` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Classifier**: disambiguate fresh landing (`Enter a coding task`) from turn-completed idle (`Add to the current task`) via turn-evidence check. Fixes `classifier.test.ts`, `e2e.test.ts`, and built-in `--self-test` all failing with `idle` where `first-prompt` was expected.
+- **CI**: split into `unit` / `e2e` (unix-only) / `build` jobs, bumped `actions/checkout` + `actions/setup-node` to v5 and artifacts to v5 (clears Node 20 deprecation), trimmed Node matrix to 20/22/24, dropped tmux E2E on Windows.
+- **Distribution**: canonical owner `kelvindesman` across `package.json`, `README`, `install.sh`, `Formula`, `CONTRIBUTING`; added npm `publishConfig` with provenance; hardened `install.sh` (`pipefail`, checksum verify, no silent fallbacks); fixed Homebrew formula symlink to `dist/cli.js`.
+- **Automation**: new tag-driven `release.yml` (version-sync gate, npm Trusted Publisher, GitHub Release binaries + SHA256SUMS, Homebrew formula bump).
+
 ## [0.1.0] - 2026-10-03
 
 ### Initial Open-Source Release

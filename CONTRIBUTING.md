@@ -10,7 +10,7 @@ Thank you for your interest in contributing! We welcome bug fixes, improvements,
 
 2. **Clone and Install**:
    ```bash
-   git clone https://github.com/kelvin/freebuff-autocontinue.git
+    git clone https://github.com/kelvindesman/freebuff-autocontinue.git
    cd freebuff-autocontinue
    ```
 
@@ -52,3 +52,14 @@ Thank you for your interest in contributing! We welcome bug fixes, improvements,
 - [ ] `bun run build` builds cleanly.
 - [ ] `node dist/cli.js --self-test` passes.
 - [ ] Code follows TypeScript best practices with zero runtime dependencies.
+
+---
+
+## Release Runbook (solo-dev, tag-driven)
+
+1. Bump `package.json` `"version"`, `src/cli.ts` `VERSION`, and `CHANGELOG.md` (keep all three in sync).
+2. Merge to `main` via PR (CI must be green).
+3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. `release.yml` then automatically: verifies version sync, runs unit + build + self-test, compiles 5 standalone binaries, publishes to npm via Trusted Publisher (no token), creates the GitHub Release with binaries + checksums, and bumps `Formula/freebuff-autocontinue.rb` (`url` + `sha256`).
+5. First release only: link npm Trusted Publisher once (npm package settings → Trusted Publisher → repo `kelvindesman/freebuff-autocontinue`, workflow `release.yml`).
+6. Verify: `npx -y freebuff-autocontinue@latest --self-test`, `curl` installer on clean macOS/Linux, `brew install` from tap.

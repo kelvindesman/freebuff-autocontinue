@@ -1,17 +1,19 @@
 class FreebuffAutocontinue < Formula
   desc "Autonomous session supervisor for Freebuff CLI with smart model fallback"
-  homepage "https://github.com/kelvin/freebuff-autocontinue"
-  url "https://github.com/kelvin/freebuff-autocontinue/archive/refs/tags/v0.1.0.tar.gz"
+  homepage "https://github.com/kelvindesman/freebuff-autocontinue"
+  # NOTE: the tag-driven release workflow patches `url` + `sha256` on every
+  # version tag. The placeholder below is only for local `brew install --build-from-source` checks.
+  url "https://github.com/kelvindesman/freebuff-autocontinue/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
-  head "https://github.com/kelvin/freebuff-autocontinue.git", branch: "main"
+  head "https://github.com/kelvindesman/freebuff-autocontinue.git", branch: "main"
 
   depends_on "node"
   depends_on "tmux"
 
   def install
     system "npm", "install", *Language::Node.std_npm_install_args(libexec)
-    bin.install_symlink Dir["#{libexec}/bin/*"]
+    bin.install_symlink libexec/"dist/cli.js" => "freebuff-autocontinue"
   end
 
   test do

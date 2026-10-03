@@ -1,0 +1,166 @@
+name: Release
+
+# Solo-dev flow: bump package.json + src/cli.ts VERSION + CHANGELOG, merge to
+# main, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+# This workflow builds, verifies, publishes to npm (Trusted Publisher, no
+# token), attaches standalone binaries to the GitHub Release, and patches the
+# Homebrew formula with the real tarball sha256.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify tag matches package version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Check tag == package.json version == cli VERSION
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          CLI="$(grep -oE 'const VERSION = "[^"]+"' src/cli.ts | cut -d'"' -f2)"
+          echo "tag=$TAG pkg=$PKG cli=$CLI"
+          test "$TAG" = "$PKG" || { echo "❌ tag v$TAG != package.json $PKG"; exit 1; }
+          test "$TAG" = "$CLI" || { echo "❌ tag v$TAG != src/cli.ts $CLI"; exit 1; }
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Unit tests
+        run: bun test tests/ansi.test.ts tests/classifier.test.ts tests/cli.test.ts tests/community.test.ts tests/login.test.ts tests/model-picker.test.ts tests/pacific-time.test.ts tests/platform.test.ts tests/status.test.ts tests/tmux.test.ts
+
+      - name: Build + self-test + dry-run
+        run: |
+          bun run build
+          node dist/cli.js --self-test
+          node dist/cli.js --dry-run
+
+  binaries:
+    name: Compile standalone binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: verify
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Compile all targets
+        run: |
+          mkdir -p release-binaries
+          bun build --compile --target=bun-darwin-arm64 --outfile release-binaries/freebuff-autocontinue-darwin-arm64 src/cli.ts
+          bun build --compile --target=bun-darwin-x64 --outfile release-binaries/freebuff-autocontinue-darwin-x64 src/cli.ts
+          bun build --compile --target=bun-linux-x64 --outfile release-binaries/freebuff-autocontinue-linux-x64 src/cli.ts
+          bun build --compile --target=bun-linux-arm64 --outfile release-binaries/freebuff-autocontinue-linux-arm64 src/cli.ts
+          bun build --compile --target=bun-windows-x64 --outfile release-binaries/freebuff-autocontinue-windows-x64.exe src/cli.ts
+          (cd release-binaries && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: freebuff-autocontinue-binaries-${{ github.ref_name }}
+          path: release-binaries/*
+          retention-days: 90
+
+  publish-npm:
+    name: Publish to npm (Trusted Publisher)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: verify
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build + verify pack contents
+        run: |
+          bun run build
+          npm pack --dry-run
+
+      # No NPM_TOKEN: npm Trusted Publisher links this repo+workflow to the
+      # package. First release needs one clickops: npm package settings →
+      # Trusted Publisher → add kelvindesman/freebuff-autocontinue + release.yml.
+      - name: Publish with provenance
+        run: npm publish --provenance --access public
+
+  github-release:
+    name: GitHub Release + Formula bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [verify, binaries]
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: freebuff-autocontinue-binaries-${{ github.ref_name }}
+          path: release-binaries
+
+      - name: Create GitHub Release with binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-binaries/*
+          generate_release_notes: true
+
+      - name: Patch Homebrew formula url + sha256
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          TARBALL="https://github.com/kelvindesman/freebuff-autocontinue/archive/refs/tags/${TAG}.tar.gz"
+          SHA="$(curl -fsSL "$TARBALL" | sha256sum | cut -d' ' -f1)"
+          echo "tarball=$TARBALL sha=$SHA"
+          python3 - "$TARBALL" "$SHA" <<'EOF'
+          import re, sys
+          tarball, sha = sys.argv[1], sys.argv[2]
+          p = "Formula/freebuff-autocontinue.rb"
+          s = open(p).read()
+          s = re.sub(r'url "https://[^"]+\.tar\.gz"', f'url "{tarball}"', s)
+          s = re.sub(r'sha256 "[0-9a-f]{64}"', f'sha256 "{sha}"', s)
+          open(p, "w").write(s)
+          EOF
+          git diff -- Formula/freebuff-autocontinue.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/freebuff-autocontinue.rb
+          git commit -m "chore: bump Homebrew formula to ${TAG} [skip ci]" || exit 0
+          git push origin HEAD:main
