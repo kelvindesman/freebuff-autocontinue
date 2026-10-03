@@ -46,11 +46,14 @@ jobs:
           test "$TAG" = "$PKG" || { echo "❌ tag v$TAG != package.json $PKG"; exit 1; }
           test "$TAG" = "$CLI" || { echo "❌ tag v$TAG != src/cli.ts $CLI"; exit 1; }
 
+      - name: Install dependencies
+        run: bun install
+
       - name: Typecheck
-        run: bunx tsc --noEmit
+        run: bun run typecheck
 
       - name: Unit tests
-        run: bun test tests/ansi.test.ts tests/classifier.test.ts tests/cli.test.ts tests/community.test.ts tests/login.test.ts tests/model-picker.test.ts tests/pacific-time.test.ts tests/platform.test.ts tests/status.test.ts tests/tmux.test.ts
+        run: bun test tests/ansi.test.ts tests/classifier.test.ts tests/cli.test.ts tests/community.test.ts tests/login.test.ts tests/model-picker.test.ts tests/pacific-time.test.ts tests/platform.test.ts tests/status.test.ts
 
       - name: Build + self-test + dry-run
         run: |
