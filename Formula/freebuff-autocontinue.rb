@@ -21,8 +21,10 @@ class FreebuffAutocontinue < Formula
     # then build explicitly. Versions are read from package.json so they
     # can never drift.
     pkg = JSON.parse((buildpath/"package.json").read)
+    # Keep the semver ranges from package.json (npm resolves them); stripping
+    # `^` would pin nonexistent exact versions (e.g. typescript has no 5.6.0).
     build_tools = pkg.fetch("devDependencies", {}).map do |name, ver|
-      "#{name}@#{ver.delete_prefix("^").delete_prefix("~")}"
+      "#{name}@#{ver}"
     end
     system "npm", "install", "--prefix=#{libexec}", "--no-save",
            "--no-audit", "--no-fund", *build_tools
