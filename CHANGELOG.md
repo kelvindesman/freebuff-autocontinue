@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--help`, `--self-test`, and `--dry-run`: npx (ubuntu + macos), global npm, curl binary
   with SHA256SUMS verification (ubuntu + macos), Homebrew build + `brew test`, and GitHub
   Packages. A failing path holds the release, opens an issue, and never moves users.
+- **Repository rulesets**: `main: PR + gate required` (PR-only, 1 approval,
+  code-owner review, dismiss stale reviews, conversation resolution, squash-only
+  merge, no force pushes/deletions, required checks: lint/spell/types/coverage,
+  conventional commit messages, conventional PR title) and
+  `tags: v* restricted to maintainer` (tag create/update/delete limited to the
+  maintainer). The release workflow now opens a formula promotion PR instead of
+  pushing to `main`, since the ruleset blocks automated direct pushes.
 - **Nightly `Smoke Latest` workflow**: re-verifies the currently published npm `latest`,
   release binary, and Homebrew tap daily.
 - **Question modal handling**: the supervisor now detects an `ask_question` modal, prints

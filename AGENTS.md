@@ -6,10 +6,13 @@ enforced by tooling, not just convention — see [Enforcement](#enforcement).
 ## Non-negotiables
 
 1. **Never push to `main`.** Branch, commit, open a PR. The maintainer
-   approves and merges. `main` is protected.
+   approves and merges. The `main: PR + gate required` ruleset enforces this,
+   including against GITHUB_TOKEN, so automation cannot shortcut it.
 2. **Never create or push git tags.** Releases are cut by the maintainer
    through the tag-driven release workflow (`release.yml`). A stray tag
-   publishes to npm, GitHub Packages, and Homebrew.
+   publishes to npm, GitHub Packages, and Homebrew. The
+   `tags: v* restricted to maintainer` ruleset blocks tag creation, updates,
+   and deletion for everyone except kelvindesman.
 3. **Never bypass hooks.** No `--no-verify`, no `--no-gpg-sign`, no direct
    `git push` around a failing hook, no editing `.git/hooks`. If a hook
    fails, fix the cause — CI runs the same gate, so bypassing buys nothing
@@ -64,7 +67,9 @@ bun run gate        # the full gate (what pre-push and CI run)
 | No direct pushes to `main` | branch protection (required PR + approval) |
 | Tag protection | repository ruleset (`v*` restricted) |
 | Release integrity | `release.yml` verify job (tag == package.json == cli VERSION == CHANGELOG) |
-| No broken release to users | prerelease → 5-path smoke gate → promote `latest` |
+| No broken release to users | prerelease → 5-path smoke gate → promote `latest`, formula via PR |
+| No direct pushes to `main` | ruleset `main: PR + gate required` (blocks direct pushes, GITHUB_TOKEN included) |
+| No stray tags | ruleset `tags: v* restricted to maintainer` (only kelvindesman bypasses) |
 | Ownership / review | `CODEOWNERS` (`* @kelvindesman`) |
 
 ## Why hooks are not the whole story

@@ -100,12 +100,15 @@ By contributing you agree that your work is licensed under the
    - runs the **blocking smoke gate**: npx (ubuntu + macos), global npm,
      curl binary + checksum (ubuntu + macos), Homebrew formula build+test,
      GitHub Packages — each running `--version/--help/--self-test/--dry-run`
-   - only if every path passes: promotes npm `latest`, marks the GitHub
-     release latest, and fast-forwards the staged formula onto `main`
+   - only if every path passes: promotes npm `latest` and marks the GitHub
+     release latest, then opens a promotion PR for the staged formula (the
+     `main` ruleset blocks all direct pushes, automated ones included, so the
+     maintainer merges that PR like any other change)
 5. If any smoke path fails, the release stays a prerelease, an issue is
    opened automatically, and users are never given a broken `latest`.
-6. First release only: link npm Trusted Publisher once (npm package settings
+6. Merge the formula promotion PR to finish the Homebrew publish.
+7. First release only: link npm Trusted Publisher once (npm package settings
    → Trusted Publisher → repo `kelvindesman/freebuff-autocontinue`, workflow
    `release.yml`).
-7. Optional drift check: the `Smoke Latest` workflow runs nightly against
+8. Optional drift check: the `Smoke Latest` workflow runs nightly against
    whatever is currently published.

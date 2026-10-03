@@ -361,15 +361,36 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${GITHUB_REF_NAME}" --latest --prerelease=false
 
-      - name: Promote Homebrew formula to main
+      # The `main: PR + gate required` ruleset blocks every direct push to main,
+      # including GITHUB_TOKEN ones, and that is deliberate: no automated write
+      # lands on main. The formula promotion therefore opens a PR and waits for
+      # the maintainer to merge it like any other change.
+      - name: Open Homebrew formula promotion PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions-bot@users.noreply.github.com"
-          git init -q .
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git fetch -q --depth=1 origin main "refs/heads/formula/${GITHUB_REF_NAME}:refs/heads/staged-formula"
-          git checkout -q -B main refs/remotes/origin/main
-          git merge --ff-only refs/heads/staged-formula
-          git push origin HEAD:main
+          set -euo pipefail
+          TITLE="chore(release): promote Homebrew formula to ${TAG}"
+          BODY="Automated promotion after the ${TAG} smoke gate passed (npm latest + GitHub release are already live). Merge to publish the tap update."
+          EXISTING="$(gh pr list --head "formula/${TAG}" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$EXISTING" ]; then
+            echo "Promotion PR already open: #$EXISTING"
+            exit 0
+          fi
+          gh pr create \
+            --base main \
+            --head "formula/${TAG}" \
+            --title "$TITLE" \
+            --body "$BODY"
+          echo "Opened promotion PR for ${TAG}; a maintainer must merge it."
+
+      - name: Summarize promotion state
+        run: |
+          {
+            echo "### Release ${GITHUB_REF_NAME} promoted"
+            echo
+            echo "- npm \\`latest\\`: done"
+            echo "- GitHub release marked latest: done"
+            echo "- Homebrew formula: PR opened from \\`formula/${GITHUB_REF_NAME}\\` — merge it to publish the tap update"
+          } >> "$GITHUB_STEP_SUMMARY"
