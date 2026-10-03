@@ -26,7 +26,7 @@ import {
 
 // NOTE: keep in sync with package.json "version".
 // The tag-driven release workflow (release.yml) fails the build if they drift.
-const VERSION = "0.1.6";
+const VERSION = "0.1.7";
 
 const SAMPLE_TRANSCRIPT = [
   "agent finished editing src/payroll.ts",
