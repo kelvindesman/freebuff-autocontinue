@@ -17,7 +17,9 @@ enforced by tooling, not just convention — see [Enforcement](#enforcement).
    `git push` around a failing hook, no editing `.git/hooks`. If a hook
    fails, fix the cause — CI runs the same gate, so bypassing buys nothing
    and gets the PR closed.
-4. **Never edit release-owned files** except via the release runbook:
+4. **Never edit release-owned files** except via the release runbook
+   (`bun run release` / `bun run release:tag`, see
+   [CONTRIBUTING.md](./CONTRIBUTING.md#release-runbook-maintainer-only-solo-dev-tag-driven)):
    - `package.json` → `"version"`
    - `src/cli.ts` → `const VERSION`
    - `CHANGELOG.md` → released version headings
@@ -49,6 +51,18 @@ bun run gate:fast   # lint + typecheck (what pre-commit runs)
 bun run gate        # the full gate (what pre-push and CI run)
 ```
 
+Releases are two commands, never hand-edited:
+
+```bash
+bun run release 0.2.0   # bump the 3 version files, gate, branch, PR
+bun run release:tag 0.2.0   # verify, tag, push (only after the PR merges)
+```
+
+Both accept `--dry-run`. `scripts/release.mjs` refuses a dirty tree, a
+non-`main` branch, a version that is not newer than the last release, drifted
+`package.json`/`src/cli.ts` versions, or an existing tag. It never pushes to
+`main` and never bypasses a hook.
+
 - One concern per PR; keep diffs reviewable.
 - Add or update tests for every new regex, state transition, and flag.
 - Update `README.md` flags table + `CHANGELOG.md` for user-facing changes.
@@ -67,6 +81,7 @@ bun run gate        # the full gate (what pre-push and CI run)
 | No direct pushes to `main` | branch protection (required PR + approval) |
 | Tag protection | repository ruleset (`v*` restricted) |
 | Release integrity | `release.yml` verify job (tag == package.json == cli VERSION == CHANGELOG) |
+| Version files cannot drift | `scripts/release.mjs` bumps all three together; refuses mismatched `package.json` / `src/cli.ts` |
 | No broken release to users | prerelease → 5-path smoke gate → promote `latest`, formula via PR |
 | No direct pushes to `main` | ruleset `main: PR + gate required` (blocks direct pushes, GITHUB_TOKEN included) |
 | No stray tags | ruleset `tags: v* restricted to maintainer` (only kelvindesman bypasses) |
