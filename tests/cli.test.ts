@@ -44,7 +44,13 @@ describe("cli", () => {
   });
 
   it("falls back to the raw entry arg when realpath fails", () => {
-    expect(shouldAutoRun("/definitely/not/here", "file:///nope")).toBe(false);
+    // A missing entry path makes realpathSync throw; the guard must keep the
+    // raw arg and still compare unequal. Both sides are built with
+    // pathToFileURL: a hand-written "file:///nope" is a valid URL on POSIX but
+    // throws on Windows ("File URL path must be an absolute path").
+    const missing = path.join(os.tmpdir(), "definitely-not-here-12345");
+    const otherUrl = pathToFileURL(path.join(os.tmpdir(), "some-other-file")).href;
+    expect(shouldAutoRun(missing, otherUrl)).toBe(false);
   });
 
   it("runs the built-in self-test through main()", async () => {
