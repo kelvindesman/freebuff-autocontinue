@@ -24,7 +24,7 @@ import {
 
 // NOTE: keep in sync with package.json "version".
 // The tag-driven release workflow (release.yml) fails the build if they drift.
-const VERSION = "0.1.3";
+const VERSION = "0.1.4";
 
 const SAMPLE_TRANSCRIPT = [
   "agent finished editing src/payroll.ts",
@@ -352,7 +352,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   });
 }
 
-// Auto-run if executed directly
+// Auto-run if executed directly.
+// NOTE: set exitCode instead of calling process.exit(): an explicit exit()
+// can truncate piped stdout (e.g. `freebuff-autocontinue --version | head`,
+// CI log capture, `brew test`), producing silent empty output.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().then((code) => process.exit(code));
+  main().then((code) => {
+    process.exitCode = code;
+  });
 }

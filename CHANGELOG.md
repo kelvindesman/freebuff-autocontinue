@@ -5,6 +5,11 @@ All notable changes to `freebuff-autocontinue` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-10-03
+
+### Fixed
+- **Stdout truncation (critical)**: CLI used `process.exit(code)` after `main()`, which drops piped stdout (`--version | head`, CI log capture, `brew test` all saw empty output). Now sets `process.exitCode` so stdio flushes.
+
 ## [0.1.3] - 2026-10-03
 
 ### Fixed
