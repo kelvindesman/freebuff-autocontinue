@@ -5,7 +5,7 @@ All notable changes to `freebuff-autocontinue` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-10-03
 
 ### Fixed
 - **Classifier**: disambiguate fresh landing (`Enter a coding task`) from turn-completed idle (`Add to the current task`) via turn-evidence check. Fixes `classifier.test.ts`, `e2e.test.ts`, and built-in `--self-test` all failing with `idle` where `first-prompt` was expected.
