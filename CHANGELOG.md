@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-04
+
 ### Added
 - **Blocking post-distribution smoke gate**: releases now publish as a *prerelease*
   (npm `next` dist-tag, GitHub prerelease, formula staged on `formula/vX.Y.Z`) and are

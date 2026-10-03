@@ -1,6 +1,6 @@
 {
   "name": "freebuff-autocontinue",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Zero-dependency autonomous session supervisor for Freebuff CLI with smart model fallback, Pacific Midnight refill scheduling, and graceful account switching.",
   "type": "module",
   "main": "dist/index.js",
