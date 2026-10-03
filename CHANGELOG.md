@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI**: split into `unit` / `e2e` (unix-only) / `build` jobs, bumped `actions/checkout` + `actions/setup-node` to v5 and artifacts to v5 (clears Node 20 deprecation), trimmed Node matrix to 20/22/24, dropped tmux E2E on Windows.
 - **Distribution**: canonical owner `kelvindesman` across `package.json`, `README`, `install.sh`, `Formula`, `CONTRIBUTING`; added npm `publishConfig` with provenance; hardened `install.sh` (`pipefail`, checksum verify, no silent fallbacks); fixed Homebrew formula symlink to `dist/cli.js`.
 - **Automation**: new tag-driven `release.yml` (version-sync gate, npm Trusted Publisher, GitHub Release binaries + SHA256SUMS, Homebrew formula bump).
+- **Build**: `npm run build` now uses `esbuild` (devDependency) instead of `bun build`, so `npm install`-based builds (Homebrew formula, GitHub Packages job) work without Bun installed.
+- **Distribution**: every tag also publishes `@kelvindesman/freebuff-autocontinue` to GitHub Packages (works today with `GITHUB_TOKEN`, no npmjs token needed).
 
 ## [0.1.0] - 2026-10-03
 

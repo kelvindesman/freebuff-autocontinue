@@ -42,6 +42,15 @@ npm install -g freebuff-autocontinue
 freebuff-autocontinue
 ```
 
+### Option 5: GitHub Packages (`@kelvindesman` scope)
+Same code, published to the GitHub npm registry on every version tag (no npmjs account needed):
+```bash
+# One-time auth: create a classic PAT with read:packages and add to ~/.npmrc:
+# //npm.pkg.github.com/:_authToken=YOUR_PAT
+npm install -g @kelvindesman/freebuff-autocontinue --registry=https://npm.pkg.github.com
+freebuff-autocontinue --help
+```
+
 ---
 
 ## 🧭 Architecture & How It Works

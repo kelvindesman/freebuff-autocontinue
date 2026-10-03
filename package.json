@@ -16,7 +16,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build src/cli.ts --target=node --outfile=dist/cli.js && bun build src/index.ts --target=node --outfile=dist/index.js && chmod +x dist/cli.js",
+    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --outfile=dist/cli.js && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js && chmod +x dist/cli.js",
     "compile:bin": "bun build --compile --outfile bin/freebuff-autocontinue src/cli.ts",
     "compile:all": "bun run compile:bin",
     "test": "bun test tests/",
@@ -53,6 +53,7 @@
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.6.0"
   },
   "engines": {

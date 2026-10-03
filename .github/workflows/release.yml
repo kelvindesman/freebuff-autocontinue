@@ -104,7 +104,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          # Trusted publishing needs npm >=11.5.1 / node >=22.14; pin 24.
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
 
       - name: Setup Bun
@@ -122,6 +123,44 @@ jobs:
       # Trusted Publisher → add kelvindesman/freebuff-autocontinue + release.yml.
       - name: Publish with provenance
         run: npm publish --provenance --access public
+
+  publish-gpr:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: verify
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js for GitHub Packages
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@kelvindesman"
+
+      - name: Install dependencies (npm only, no bun needed)
+        run: npm install
+
+      - name: Build + verify pack contents
+        run: |
+          npm run build
+          node dist/cli.js --self-test
+          npm pack --dry-run
+
+      # GitHub Packages requires a scoped name; rename on the fly so the
+      # npmjs name stays unscoped.
+      - name: Publish scoped package to GitHub Packages
+        run: |
+          npm pkg set name=@kelvindesman/freebuff-autocontinue
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "false"
 
   github-release:
     name: GitHub Release + Formula bump
