@@ -113,6 +113,9 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install dependencies
+        run: bun install
+
       - name: Build + verify pack contents
         run: |
           bun run build
@@ -132,6 +135,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Checkout tag
         uses: actions/checkout@v5
@@ -153,14 +157,21 @@ jobs:
           npm pack --dry-run
 
       # GitHub Packages requires a scoped name; rename on the fly so the
-      # npmjs name stays unscoped.
+      # npmjs name stays unscoped. Use node (not `npm pkg set`) to avoid
+      # firing the `prepare` lifecycle, and strip provenance (unsupported
+      # on GitHub Packages) instead of relying on env overrides.
       - name: Publish scoped package to GitHub Packages
         run: |
-          npm pkg set name=@kelvindesman/freebuff-autocontinue
-          npm publish --access public
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            p.name = '@kelvindesman/freebuff-autocontinue';
+            delete (p.publishConfig || {}).provenance;
+            fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+          npm publish --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "false"
 
   github-release:
     name: GitHub Release + Formula bump
