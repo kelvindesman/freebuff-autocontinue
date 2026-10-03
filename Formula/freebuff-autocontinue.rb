@@ -8,16 +8,16 @@ class FreebuffAutocontinue < Formula
   license "MIT"
   head "https://github.com/kelvindesman/freebuff-autocontinue.git", branch: "main"
 
-  depends_on "node"
-  depends_on "tmux"
-
   livecheck do
     url :stable
     strategy :github_latest
   end
 
+  depends_on "node"
+  depends_on "tmux"
+
   def install
-    system "npm", "install", *Language::Node.std_npm_install_args(libexec)
+    system "npm", "install", *Language::Node.std_npm_args(libexec)
 
     # Homebrew's npm install omits devDependencies, but the build needs them
     # (esbuild). Install them deterministically from the committed lockfile,
