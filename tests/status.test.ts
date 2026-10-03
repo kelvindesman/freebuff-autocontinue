@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { extractStatus } from "../src/classifier.js";
 
 describe("extractStatus", () => {
@@ -10,7 +10,8 @@ describe("extractStatus", () => {
   });
 
   it("extracts model name and access tier badge", () => {
-    const pane = "  DeepSeek V4.1 Flash • UNLIMITED (5 Freebucks/hr)\nworking... 2m ■ Esc";
+    const pane =
+      "  DeepSeek V4.1 Flash • UNLIMITED (5 Freebucks/hr)\nworking... 2m ■ Esc";
     const status = extractStatus(pane);
     expect(status.model).toContain("DeepSeek V4.1 Flash");
   });

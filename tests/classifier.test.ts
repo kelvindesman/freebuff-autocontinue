@@ -1,5 +1,5 @@
-import { describe, it, expect } from "bun:test";
-import { classify, isWorkingState, isIdleReady } from "../src/classifier.js";
+import { describe, expect, it } from "bun:test";
+import { classify, isIdleReady, isWorkingState } from "../src/classifier.js";
 
 describe("classify state machine", () => {
   it("detects first prompt landing messages", () => {
@@ -59,17 +59,23 @@ describe("classify state machine", () => {
 
   it("detects all hard stop conditions", () => {
     const stops: Array<[string, string]> = [
-      ["Out of credits. Please add credits at https://codebuff.com", "stop:out-of-credits"],
+      [
+        "Out of credits. Please add credits at https://codebuff.com",
+        "stop:out-of-credits",
+      ],
       ["This account is suspended.", "stop:banned"],
       ["Freebuff is unavailable in your jurisdiction.", "stop:country-blocked"],
       ["Free mode is not available in your country.", "stop:country-blocked"],
       ["Too many Freebuff sessions on this network.", "stop:ip-capped"],
-      ["This Freebuff session was released or taken over by another instance.", "stop:superseded"],
+      [
+        "This Freebuff session was released or taken over by another instance.",
+        "stop:superseded",
+      ],
       ["Freebuff is temporarily busy.", "stop:rate-limited"],
     ];
 
     for (const [line, expected] of stops) {
-      expect(classify(line).action).toBe(expected as any);
+      expect(classify(line).action).toBe(expected);
     }
   });
 
@@ -84,5 +90,63 @@ describe("classify state machine", () => {
     expect(isWorkingState(busy)).toBe(true);
     expect(isIdleReady(busy)).toBe(false);
     expect(classify(busy).action).toBe(null);
+  });
+
+  // Regression: `capture-pane -S -200` keeps stale banners in scrollback, so
+  // a mid-turn pane can still contain a session-ended or paywall line. Acting
+  // on those injects keystrokes into a running turn.
+  it("never continues on stale banner while working", () => {
+    const pane =
+      "Session ended  ·  20 Freebucks left\n" +
+      "Your free session ended, so the agent stopped here. Send a message to start a new session and continue.\n" +
+      "working... 4s ■ Esc";
+    expect(classify(pane).action).toBe(null);
+  });
+
+  it("never opens the picker on stale paywall while working", () => {
+    const pane =
+      "Not enough Freebucks for MiMo 2.6 Pro (30 Freebucks/hr).\n" +
+      "working... 4s ■ Esc";
+    expect(classify(pane).action).toBe(null);
+  });
+
+  it("still detects a live session-ended gate when not working", () => {
+    const pane = "Session ended  ·  20 Freebucks left";
+    expect(classify(pane).action).toBe("continue");
+  });
+
+  it("gives hard stops precedence over stale scrollback", () => {
+    const pane = "Session ended  ·  20 Freebucks left\nThis account is suspended.";
+    expect(classify(pane).action).toBe("stop:banned");
+  });
+
+  it("gives hard stops precedence over a working pane", () => {
+    const pane = "working... 2s ■ Esc\nToo many Freebuff sessions on this network.";
+    expect(classify(pane).action).toBe("stop:ip-capped");
+  });
+
+  it("classifies question modals", () => {
+    const pane =
+      "╭── Some questions for you ──╮\n" +
+      "│ Which ticket? │\n" +
+      "│ ↑↓ navigate • Enter select │\n" +
+      "╰── Submit ──╯";
+    expect(classify(pane).action).toBe("question");
+  });
+
+  it("treats post-turn reuse of the fresh prompt as idle", () => {
+    const pane =
+      "Received continuation from the previous session\n▍Enter a coding task or / for commands";
+    expect(classify(pane).action).toBe("idle");
+  });
+
+  it("treats a fresh landing screen as first-prompt", () => {
+    expect(classify("▍Enter a coding task or / for commands").action).toBe(
+      "first-prompt"
+    );
+  });
+
+  it("never blocks on an empty Freebucks pool", () => {
+    expect(classify("0/105 Freebucks remaining").action).toBe(null);
   });
 });

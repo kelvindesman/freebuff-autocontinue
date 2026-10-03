@@ -2,12 +2,7 @@
  * Model candidate extraction, evaluation, and fallback selection.
  */
 
-import {
-  PRICE_RE,
-  ZERO_COST_RE,
-  LOCKED_RE,
-  UNAVAILABLE_RE,
-} from "./constants.js";
+import { LOCKED_RE, PRICE_RE, UNAVAILABLE_RE, ZERO_COST_RE } from "./constants.js";
 
 export interface ModelCandidate {
   name: string;
@@ -44,7 +39,9 @@ export function parseModelRows(lines: string[]): ModelCandidate[] {
     }
 
     // Extract model name before double space or status keywords
-    const nameMatch = line.match(/^(.+?)(?:\s{2,}|\s+(?:\d+[\d,]*\s+Freebucks|Paid\s+plan|closed|unavailable))/i);
+    const nameMatch = line.match(
+      /^(.+?)(?:\s{2,}|\s+(?:\d+[\d,]*\s+Freebucks|Paid\s+plan|closed|unavailable))/i
+    );
     const name = nameMatch ? nameMatch[1].trim() : line.slice(0, 30).trim();
 
     candidates.push({

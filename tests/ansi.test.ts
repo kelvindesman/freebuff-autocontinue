@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { stripAnsi } from "../src/classifier.js";
 
 describe("stripAnsi", () => {

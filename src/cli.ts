@@ -1,28 +1,32 @@
 #!/usr/bin/env node
+
 /**
  * freebuff-autocontinue CLI entrypoint.
  */
 
-import { parseArgs } from "node:util";
-import fs from "node:fs";
-import { realpathSync } from "node:fs";
+import fs, { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import {
-  DEFAULT_TEXT,
-  DEFAULT_MODEL,
-  CONTINUE_ID_RE,
-} from "./constants.js";
-import { checkPlatform } from "./platform.js";
-import { hasSession, attachSession } from "./tmux.js";
-import { classify, stripAnsi, extractStatus } from "./classifier.js";
-import { pickCheapest } from "./model-picker.js";
-import { watch } from "./watcher.js";
+import { parseArgs } from "node:util";
+import { classify, extractStatus, stripAnsi } from "./classifier.js";
+import { CONTINUE_ID_RE, DEFAULT_MODEL, DEFAULT_TEXT } from "./constants.js";
 import { runInteractiveWizard } from "./interactive.js";
+import { pickCheapest } from "./model-picker.js";
 import {
-  getSecondsUntilPacificMidnight,
-  formatPacificTime,
   formatDuration,
+  formatPacificTime,
+  getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
+import { checkPlatform } from "./platform.js";
+import {
+  isTelemetryEnabled,
+  setTelemetryConsent,
+  TELEMETRY_URL_ENV,
+  telemetryPaths,
+  trackCrash,
+  trackRun,
+} from "./telemetry.js";
+import { attachSession, hasSession } from "./tmux.js";
+import { watch } from "./watcher.js";
 
 // NOTE: keep in sync with package.json "version".
 // The tag-driven release workflow (release.yml) fails the build if they drift.
@@ -93,17 +97,21 @@ export function selfTest(): number {
     c4.action === "fallback-accept" && c4.detail.includes("DeepSeek")
   );
 
-  const c5 = classify(
-    "Not enough Freebucks for MiMo 2.6 Pro (30 Freebucks/hr)."
-  );
+  const c5 = classify("Not enough Freebucks for MiMo 2.6 Pro (30 Freebucks/hr).");
   check("paywall detected", c5.action === "paywall");
 
   const stops: Array<[string, string]> = [
-    ["Out of credits. Please add credits at https://codebuff.com/usage", "out-of-credits"],
+    [
+      "Out of credits. Please add credits at https://codebuff.com/usage",
+      "out-of-credits",
+    ],
     ["This account is suspended. If this is a mistake", "banned"],
     ["Freebuff is unavailable in XX. Use /byok", "country-blocked"],
     ["Too many Freebuff sessions on this network.", "ip-capped"],
-    ["This Freebuff session was released or taken over by another instance.", "superseded"],
+    [
+      "This Freebuff session was released or taken over by another instance.",
+      "superseded",
+    ],
     ["Freebuff is temporarily busy. Please try again in a moment.", "rate-limited"],
   ];
   for (const [line, reason] of stops) {
@@ -116,8 +124,7 @@ export function selfTest(): number {
   const idleRes = classify("▍Add to the current task (/ for commands)");
   check("idle composer -> idle", idleRes.action === "idle");
 
-  const busyPane =
-    "working... 12m 30s ■ Esc\n▍Add to the current task (/ for commands)";
+  const busyPane = "working... 12m 30s ■ Esc\n▍Add to the current task (/ for commands)";
   check("working state is not idle", classify(busyPane).action === null);
 
   const st = extractStatus(busyPane);
@@ -130,19 +137,63 @@ export function selfTest(): number {
     "GLM 5.3 Flash  8 Freebucks/hr  TEST",
   ];
   check("cheapest joinable picked", pickCheapest(rows) === rows[2]);
+  check("no candidates -> null", pickCheapest(["GPT-6 Luna  Paid plan"]) === null);
+
+  // Hard stop must win over stale scrollback banners.
+  check(
+    "stop beats stale continue banner",
+    classify("Session ended  ·  20 Freebucks left\nThis account is suspended.").action ===
+      "stop:banned"
+  );
+  // Working state must swallow stale banners (mid-turn keystroke guard).
+  check(
+    "working state swallows stale continue banner",
+    classify("Session ended  ·  20 Freebucks left\nworking... 4s ■ Esc").action === null
+  );
+  check(
+    "working state swallows stale paywall",
+    classify("Not enough Freebucks for MiMo 2.6 Pro\nworking... 4s ■ Esc").action === null
+  );
 
   const ansi =
     "\x1b[38;2;172;179;191mYour first message starts the session." +
     "\x1b[0m\r\x1b[19;4HEnter a coding task or / for commands\x1b[0m";
   check("ansi+CR first-prompt", classify(ansi).action === "first-prompt");
 
-  check("login gate -> login", classify("Press ENTER to login...").action === "login");
-  check("update notice -> update", classify("Update available: 0.2.11 → 0.2.12").action === "update");
+  // Post-turn reuse of the fresh prompt: turn evidence makes it idle, which
+  // is what keeps auto-continue from going deaf after a session cycle.
+  check(
+    "fresh-prompt-after-cycle -> idle",
+    classify(
+      "Received continuation from the previous session\n▍Enter a coding task or / for commands"
+    ).action === "idle"
+  );
 
-  const cidMatch = (
-    "To continue this session later, run:\nfreebuff --continue 2026-10-02T12-59-14.177Z"
-  ).match(CONTINUE_ID_RE);
-  check("continue-id captured", Boolean(cidMatch) && cidMatch![1].startsWith("2026-10-02"));
+  check("stripAnsi removes OSC", !stripAnsi("\x1b]11;?\x07hi").includes("\x1b"));
+  check(
+    "stripAnsi removes complex CSI",
+    !stripAnsi("\x1b[?1016$p\x1b[>0q\x1b[0 q\x1b[<uhello").includes("\x1b")
+  );
+  check("empty pool never blocks", classify("0/105 Freebucks remaining").action === null);
+
+  check(
+    "question modal detected",
+    classify(
+      "╭── Some questions for you ──╮\n│ Which ticket? │\n│ ↑↓ navigate • Enter select │\n╰── Submit ──╯"
+    ).action === "question"
+  );
+
+  check("login gate -> login", classify("Press ENTER to login...").action === "login");
+  check(
+    "update notice -> update",
+    classify("Update available: 0.2.11 → 0.2.12").action === "update"
+  );
+
+  const cidMatch =
+    "To continue this session later, run:\nfreebuff --continue 2026-10-02T12-59-14.177Z".match(
+      CONTINUE_ID_RE
+    );
+  check("continue-id captured", cidMatch?.[1]?.startsWith("2026-10-02") === true);
 
   const waitSecs = getSecondsUntilPacificMidnight();
   check("pacific midnight countdown positive", waitSecs > 0 && waitSecs <= 86460);
@@ -186,7 +237,13 @@ OPTIONS:
   --kill-on-exit             Kill tmux session on exit [default: leave running]
   --allow-risky              Also consider TEST/peak-window rows in /model fallback
   --no-banner                Silence rotating community / support reminders
+  --auto-answer             Auto-submit the recommended option when the agent asks a question [default: true]
+  --no-auto-answer          Never auto-answer questions; wait for a human to attach
+  --question-timeout <sec>  Seconds to wait for a human choice before auto-selecting [default: 30] (0 = instant)
   --attach                   Attach to the existing tmux session directly
+  --telemetry-opt-in         Opt in to anonymous usage + crash reports (default: OFF)
+  --telemetry-opt-out        Opt out and clear stored consent
+  --telemetry-status         Print current telemetry consent state
   --self-test                Run internal pattern detection tests
   --dry-run                  Classify sample transcript and preview actions
   -v, --version              Show version
@@ -238,6 +295,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     "kill-on-exit": { type: "boolean" as const, default: false },
     "allow-risky": { type: "boolean" as const, default: false },
     "no-banner": { type: "boolean" as const, default: false },
+    "auto-answer": { type: "boolean" as const, default: true },
+    "no-auto-answer": { type: "boolean" as const, default: false },
+    "question-timeout": { type: "string" as const, default: "30" },
+    "telemetry-opt-in": { type: "boolean" as const, default: false },
+    "telemetry-opt-out": { type: "boolean" as const, default: false },
+    "telemetry-status": { type: "boolean" as const, default: false },
     attach: { type: "boolean" as const, default: false },
     "self-test": { type: "boolean" as const, default: false },
     "dry-run": { type: "boolean" as const, default: false },
@@ -263,6 +326,35 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 0;
   }
 
+  // Telemetry consent is handled before anything else: it must work without
+  // tmux, without network, and must never itself emit an event.
+  if (values["telemetry-opt-in"]) {
+    setTelemetryConsent(true);
+    console.log("[autocontinue] telemetry opted IN (anonymous usage + crash reports).");
+    console.log(`  consent file: ${telemetryPaths().consent}`);
+    console.log("  events are appended locally; a remote endpoint is used only if");
+    console.log(`  ${TELEMETRY_URL_ENV} is set. See TELEMETRY.md.`);
+    console.log("  opt back out any time: --telemetry-opt-out");
+    return 0;
+  }
+  if (values["telemetry-opt-out"]) {
+    setTelemetryConsent(false);
+    console.log("[autocontinue] telemetry opted OUT. Consent file cleared.");
+    return 0;
+  }
+  if (values["telemetry-status"]) {
+    const paths = telemetryPaths();
+    const enabled = isTelemetryEnabled();
+    console.log(`telemetry: ${enabled ? "ON (opted in)" : "OFF (default)"}`);
+    console.log(`consent file: ${paths.consent}`);
+    console.log(`local log: ${paths.log}`);
+    console.log(
+      `remote endpoint: ${process.env[TELEMETRY_URL_ENV] ?? "none (local log only)"}`
+    );
+    console.log("see TELEMETRY.md for exactly what is (and is not) collected");
+    return 0;
+  }
+
   if (values["self-test"]) {
     return selfTest();
   }
@@ -282,6 +374,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 0;
   }
 
+  /* coverage-waiver-block: everything below launches the supervisor, which
+     needs a live tmux session and the real freebuff CLI. Argument parsing,
+     text resolution, help/version/self-test/dry-run and telemetry consent
+     are all covered above. */
   // Verify platform & tmux installation
   const platform = checkPlatform();
   if (!platform.hasTmux) {
@@ -293,7 +389,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
   if (values.attach) {
     if (!hasSession(sessionName)) {
-      console.error(`[autocontinue] No active session "${sessionName}" found on socket freebuff-auto.`);
+      console.error(
+        `[autocontinue] No active session "${sessionName}" found on socket freebuff-auto.`
+      );
       return 1;
     }
     attachSession(sessionName);
@@ -301,8 +399,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
 
   let chosenModel = values.model || DEFAULT_MODEL;
-  let onExhaustChoice: "wait" | "switch" | "stop" =
-    values["no-wait-refill"] ? "stop" : (values["on-exhaust"] as any) || "wait";
+  type ExhaustPolicy = "wait" | "switch" | "stop";
+  const validExhaust: readonly string[] = ["wait", "switch", "stop"];
+  const exhaustArg = String(values["on-exhaust"] ?? "wait");
+  let onExhaustChoice: ExhaustPolicy = validExhaust.includes(exhaustArg)
+    ? (exhaustArg as ExhaustPolicy)
+    : "wait";
+  if (values["no-wait-refill"]) {
+    onExhaustChoice = "stop";
+  }
   let maxContinuesNum = parseInt(values["max-continues"] || "10", 10);
 
   // If interactive wizard requested
@@ -351,7 +456,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     noBanner: Boolean(values["no-banner"]),
     isResumed: sessionExists,
     interactive: Boolean(values.interactive),
+    autoAnswer: values["auto-answer"] !== false && !values["no-auto-answer"],
+    questionTimeout: parseInt(values["question-timeout"] || "30", 10),
   });
+  /* coverage-waiver-end */
 }
 
 // Auto-run if executed directly.
@@ -372,8 +480,35 @@ export function shouldAutoRun(entryArg: string, metaUrl: string): boolean {
 }
 
 const entryArg = process.argv[1] ?? "";
+/* coverage-waiver-block: direct-execution wiring (crash hook + run
+   telemetry) only fires when this file IS the process entry point, which
+   never happens under the test runner. */
 if (shouldAutoRun(entryArg, import.meta.url)) {
+  const startedAt = Date.now();
+
+  // Crash reporting is opt-in only; trackCrash() no-ops unless consented.
+  process.on("uncaughtException", (err: unknown) => {
+    trackCrash(err, VERSION);
+    console.error(
+      `[autocontinue] unexpected error: ${err instanceof Error ? err.message : String(err)}`
+    );
+    console.error(
+      "[autocontinue] any tmux session is still running; reattach with --attach"
+    );
+    console.error(
+      "[autocontinue] opt in to anonymous crash reports: freebuff-autocontinue --telemetry-opt-in"
+    );
+    process.exit(1);
+  });
+
   main().then((code) => {
+    trackRun({
+      version: VERSION,
+      argv: process.argv.slice(2),
+      durationMs: Date.now() - startedAt,
+      exitCode: code,
+    });
     process.exitCode = code;
   });
 }
+/* coverage-waiver-end */

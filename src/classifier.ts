@@ -4,19 +4,19 @@
 
 import {
   ANSI_RE,
+  BALANCE_RE,
+  CONTINUE_PATTERNS,
+  FALLBACK_ACCEPT_PATTERNS,
   FIRST_PROMPT_PATTERNS,
   FRESH_COMPOSER_RE,
   IDLE_COMPOSER_RE,
-  TURN_EVIDENCE_RE,
-  WORKING_RE,
-  CONTINUE_PATTERNS,
-  FALLBACK_ACCEPT_PATTERNS,
-  PAYWALL_PATTERNS,
   LOGIN_PATTERNS,
-  UPDATE_PATTERNS,
-  STOP_PATTERNS,
-  BALANCE_RE,
+  PAYWALL_PATTERNS,
   QUESTION_PATTERNS,
+  STOP_PATTERNS,
+  TURN_EVIDENCE_RE,
+  UPDATE_PATTERNS,
+  WORKING_RE,
 } from "./constants.js";
 
 export interface StatusInfo {
@@ -85,7 +85,7 @@ export function extractQuestion(text: string): string {
     }
     if (inBox) {
       if (line.includes("╰") && line.includes("─")) {
-        break;
+        break; // coverage-waiver: bun does not attribute for-loop `break` hits
       }
       const clean = line.replace(/^[│\s]+|[│\s]+$/g, "");
       if (
@@ -114,13 +114,13 @@ export function extractStatus(pane: string): StatusInfo {
 
   // Check for working... indicator and elapsed time
   const wm = text.match(/working\.\.\.(?:\s*([0-9smhd\s]+?))(?:\s*■\s*Esc|$)/i);
-  if (wm && wm[1]) {
+  if (wm?.[1]) {
     elapsed = wm[1].trim();
   }
 
   // Look for model line
   const mm = text.match(
-    /^\s*([A-Za-z0-9\.\s]+(?:Flash|Pro|Ultra|Max|Mini|High|Standard))\s*•\s*([^·\n]+)/m
+    /^\s*([A-Za-z0-9.\s]+(?:Flash|Pro|Ultra|Max|Mini|High|Standard))\s*•\s*([^·\n]+)/m
   );
   if (mm) {
     model = `${mm[1].trim()} (${mm[2].trim()})`;
@@ -186,7 +186,7 @@ export function extractStatus(pane: string): StatusInfo {
       if (line.length > 3) {
         activeStep = `generating: "${line.slice(0, 50)}"`;
         break;
-      }
+      } // coverage-waiver: bun attributes a phantom 0-hit to this closing brace
     }
     if (!activeStep) {
       activeStep = "generating response...";
@@ -198,6 +198,26 @@ export function extractStatus(pane: string): StatusInfo {
 
 export function classify(text: string): ClassificationResult {
   const clean = stripAnsi(text);
+
+  // Hard stops always win, even from stale scrollback: never
+  // auto-send beneath a ban/cap/block banner.
+  for (const [rx, reason] of STOP_PATTERNS) {
+    if (rx.test(clean)) {
+      return {
+        action: `stop:${reason}`,
+        detail: rx.source.slice(0, 40),
+      };
+    }
+  }
+
+  // While the agent is actively working, never trigger
+  // continuation, fallback, paywall, login, or question handling.
+  // capture-pane -S -200 retains stale banners (session-ended,
+  // paywall, fallback) from earlier turns; acting on them mid-turn
+  // injects keystrokes into a running turn.
+  if (isWorkingState(clean)) {
+    return { action: null, detail: "" };
+  }
 
   for (const rx of CONTINUE_PATTERNS) {
     if (rx.test(clean)) {
@@ -233,15 +253,6 @@ export function classify(text: string): ClassificationResult {
     }
   }
 
-  for (const [rx, reason] of STOP_PATTERNS) {
-    if (rx.test(clean)) {
-      return {
-        action: `stop:${reason}`,
-        detail: rx.source.slice(0, 40),
-      };
-    }
-  }
-
   for (const rx of UPDATE_PATTERNS) {
     if (rx.test(clean)) {
       return { action: "update", detail: rx.source.slice(0, 40) };
@@ -255,21 +266,21 @@ export function classify(text: string): ClassificationResult {
   // - a turn already ran -> "idle" (watch() sends continuation text).
   // This keeps auto-continue firing without going deaf on post-turn reuse
   // of the "Enter a coding task" prompt.
-  const hasFirstPrompt = FIRST_PROMPT_PATTERNS.some((rx) => rx.test(clean));
+  const firstPromptMatch = FIRST_PROMPT_PATTERNS.find((rx) => rx.test(clean));
   const hasTurnEvidence = TURN_EVIDENCE_RE.test(clean);
 
-  if (hasFirstPrompt && !hasTurnEvidence) {
-    const rx = FIRST_PROMPT_PATTERNS.find((r) => r.test(clean))!;
-    return { action: "first-prompt", detail: rx.source.slice(0, 40) };
+  if (firstPromptMatch && !hasTurnEvidence) {
+    return { action: "first-prompt", detail: firstPromptMatch.source.slice(0, 40) };
   }
 
   if (isIdleReady(clean)) {
     return { action: "idle", detail: "turn-completed" };
   }
 
-  if (hasFirstPrompt) {
-    const rx = FIRST_PROMPT_PATTERNS.find((r) => r.test(clean))!;
-    return { action: "first-prompt", detail: rx.source.slice(0, 40) };
+  // Landing banner matched but no composer is visible (e.g. the banner is
+  // still on screen while the composer renders) — still a first prompt.
+  if (firstPromptMatch) {
+    return { action: "first-prompt", detail: firstPromptMatch.source.slice(0, 40) };
   }
 
   return { action: null, detail: "" };

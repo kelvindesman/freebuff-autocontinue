@@ -1,11 +1,12 @@
 /**
+// coverage-waiver: thin subprocess wrapper around tmux; exercised live in tests/tmux.test.ts and tests/e2e.test.ts
  * Safe, isolated tmux controller using dedicated socket 'freebuff-auto'.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { isWorkingState, stripAnsi } from "./classifier.js";
 import { TMUX_SOCKET } from "./constants.js";
-import { stripAnsi, isWorkingState } from "./classifier.js";
 
 export function tmux(args: string[]): {
   stdout: string;
@@ -28,6 +29,74 @@ export function tmux(args: string[]): {
     const message = err instanceof Error ? err.message : String(err);
     return { stdout: "", stderr: message, code: 1 };
   }
+}
+
+/**
+ * FNV-1a string hash. Used for pane-change detection: the previous
+ * `length ^ firstChar` hash collided on screens that only differed deep
+ * in the buffer, which silently defeated the stall watchdog.
+ */
+export function fnv1a(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash;
+}
+
+/**
+ * Minimal shell-like splitter (shlex subset): honors single/double quotes
+ * and backslash escapes. A plain `split(/\s+/)` mangled quoted commands
+ * such as `--cmd "freebuff --flag 'a b'"`.
+ */
+export function splitCommand(cmd: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let started = false;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (const ch of cmd) {
+    if (escaped) {
+      current += ch;
+      started = true;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote !== null) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      // An empty quoted token ('') is still a real argument.
+      started = true;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (started) {
+        parts.push(current);
+        current = "";
+        started = false;
+      }
+      continue;
+    }
+    current += ch;
+    started = true;
+  }
+  if (started) {
+    parts.push(current);
+  }
+  return parts;
 }
 
 export function hasSession(name: string): boolean {
@@ -56,8 +125,8 @@ export function spawnSession(
   cwd?: string,
   extra: string[] = []
 ): boolean {
-  // Split command securely
-  const parts = cmd.trim().split(/\s+/).concat(extra);
+  // Split command securely (shlex subset: quotes + escapes)
+  const parts = splitCommand(cmd).concat(extra);
   const args = ["new-session", "-d", "-s", name, "-x", "160", "-y", "50"];
   if (cwd) {
     args.push("-c", cwd);

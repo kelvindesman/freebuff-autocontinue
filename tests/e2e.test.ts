@@ -1,13 +1,13 @@
-import { describe, it, expect, afterAll } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import path from "node:path";
-import {
-  spawnSession,
-  hasSession,
-  capture,
-  sendAndVerify,
-  killSession,
-} from "../src/tmux.js";
 import { classify, extractStatus } from "../src/classifier.js";
+import {
+  capture,
+  hasSession,
+  killSession,
+  sendAndVerify,
+  spawnSession,
+} from "../src/tmux.js";
 
 const TEST_SESSION = "test-fb-auto-e2e";
 const MOCK_SCRIPT = path.resolve(__dirname, "fixtures/mock-freebuff.sh");
