@@ -461,7 +461,25 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
+      # `npm dist-tag add` is a registry *write*, and npm's Trusted Publishing
+      # (OIDC) authorizes `npm publish` only. `actions/setup-node` mints an OIDC
+      # token for this job, and npm rejects it with `E401 Unable to
+      # authenticate` — which is how the v0.2.4 run failed after every install
+      # path passed. Promotion therefore needs a classic automation token.
+      - name: Require NPM_TOKEN
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::NPM_TOKEN is not set. Create an npm automation token"
+            echo "::error::(npmjs.com -> Access Tokens -> Generate, 'Automation')"
+            echo "::error::and add it as the NPM_TOKEN repository secret."
+            exit 1
+          fi
+
       - name: Promote npm dist-tag to latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm dist-tag add "freebuff-autocontinue@${GITHUB_REF_NAME#v}" latest
 
       - name: Mark GitHub release as latest
