@@ -487,7 +487,13 @@ jobs:
     steps:
       - name: Resolve version
         id: ver
-        run: echo "version=${{ inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        # Normalize to the bare version: manual dispatch passes `0.2.5` but a
+        # tag push yields ref_name `v0.2.5`. Every use below adds (`v${...}`)
+        # or strips (`${...#v}`) the prefix itself, so a raw `vv0.2.5` here
+        # broke checkout on tag runs.
+        run: |
+          RAW="${{ inputs.version || github.ref_name }}"
+          echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
 
       # The package name comes from package.json, and on a manual dispatch
       # GITHUB_REF_NAME is the branch, so check out the tag being promoted.
