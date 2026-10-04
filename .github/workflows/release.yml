@@ -573,6 +573,7 @@ jobs:
       # lands on main. The formula promotion therefore opens a PR and waits for
       # the maintainer to merge it like any other change.
       - name: Open Homebrew formula promotion PR
+        id: formula_pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.ver.outputs.version }}
@@ -592,6 +593,7 @@ jobs:
           git fetch -q origin main
           if git show "origin/main:${FORMULA}" | grep -q "download/v${TAG}/"; then
             echo "main's ${FORMULA} already points at v${TAG}; nothing to promote."
+            echo "status=already-promoted" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if ! git ls-remote --exit-code --heads origin "refs/heads/${BRANCH}" >/dev/null 2>&1; then
@@ -604,23 +606,44 @@ jobs:
           EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
           if [ -n "$EXISTING" ]; then
             echo "Promotion PR already open: #$EXISTING"
+            echo "status=already-open" >> "$GITHUB_OUTPUT"
+            echo "number=$EXISTING" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          gh pr create \
+          URL="$(gh pr create \
             --base main \
             --head "$BRANCH" \
             --title "$TITLE" \
-            --body "$BODY"
-          echo "Opened promotion PR for ${TAG}; a maintainer must merge it."
+            --body "$BODY")"
+          echo "Opened promotion PR for ${TAG}: ${URL}"
+          echo "status=opened" >> "$GITHUB_OUTPUT"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
       - name: Summarize promotion state
         env:
           VERSION: ${{ steps.ver.outputs.version }}
+          PR_STATUS: ${{ steps.formula_pr.outputs.status }}
+          PR_URL: ${{ steps.formula_pr.outputs.url }}
+          PR_NUMBER: ${{ steps.formula_pr.outputs.number }}
         run: |
+          set -euo pipefail
           {
-            echo "### Release $VERSION promoted"
+            echo "### Release ${VERSION} promoted"
             echo
-            echo "- npm \\`latest\\`: done"
+            echo "- npm latest: done"
             echo "- GitHub release marked latest: done"
-            echo "- Homebrew formula: PR opened from \\`formula/${VERSION}\\` — merge it to publish the tap update"
+            case "$PR_STATUS" in
+              opened)
+                echo "- Homebrew formula: PR opened at ${PR_URL} - merge it to publish the tap update"
+                ;;
+              already-open)
+                echo "- Homebrew formula: PR #${PR_NUMBER} already open - merge it to publish the tap update"
+                ;;
+              already-promoted)
+                echo "- Homebrew formula: main already points at ${VERSION}, nothing to promote"
+                ;;
+              *)
+                echo "- Homebrew formula: UNKNOWN STATE ('${PR_STATUS}') - check the job log"
+                ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"
