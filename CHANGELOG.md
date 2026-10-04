@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - the Homebrew smoke taps this repository and checks out the staged
     `formula/vX.Y.Z` branch instead of `brew install --build-from-source <path>.rb`,
     which Homebrew >= 5 rejects ("Homebrew requires formulae to be in a tap").
+  - the registry-propagation job declares `permissions: packages: read`. Job
+    permissions are opt-in, so without it the token had no `packages` scope and
+    GitHub Packages reads were rejected — which the poll misread as propagation
+    lag and retried for 300s. It now also fails fast with the real npm error
+    when a registry rejects the token, instead of swallowing it.
 - **Mid-turn keystroke injection**: `classify()` had no working-state guard, so a stale
   session-ended / paywall / fallback banner retained by `capture-pane -S -200` could fire a
   send *while the agent was working*. Hard stops now take precedence over everything else,
