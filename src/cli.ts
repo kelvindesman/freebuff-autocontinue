@@ -35,7 +35,7 @@ import { watch } from "./watcher.js";
 
 // NOTE: keep in sync with package.json "version".
 // The tag-driven release workflow (release.yml) fails the build if they drift.
-const VERSION = "0.2.4";
+const VERSION = "0.2.5";
 
 const SAMPLE_TRANSCRIPT = [
   "agent finished editing src/payroll.ts",
