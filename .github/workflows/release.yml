@@ -259,6 +259,13 @@ jobs:
     needs: [github-release, publish-npm, publish-gpr]
     outputs:
       version: ${{ steps.resolve.outputs.version }}
+    # `packages: read` is required, not inherited. Job permissions are opt-in:
+    # without this block the token carries only the workflow-level scopes
+    # (contents, id-token) and GitHub Packages reads come back 401/403, which
+    # the v0.2.1 run mistook for propagation lag and retried for 300s.
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Resolve version
         id: resolve
@@ -276,20 +283,43 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm config set //npm.pkg.github.com/:_authToken "$NODE_AUTH_TOKEN"
 
+      # Distinguish "not replicated yet" (retry) from "we are not allowed to ask"
+      # (stop now). Auth failures never resolve by waiting, and swallowing them
+      # behind a poll is what turned a one-line permission bug into a 5-minute
+      # mystery.
+      - name: Fail fast if GitHub Packages auth is rejected
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          ERR="$(mktemp)"
+          if npm view "@kelvindesman/freebuff-autocontinue@${VERSION}" version \
+            --registry=https://npm.pkg.github.com >/dev/null 2>"$ERR"; then
+            echo "GitHub Packages already serves ${VERSION}"
+            exit 0
+          fi
+          if grep -qE 'E401|E403|Forbidden|Unauthorized' "$ERR"; then
+            echo "::error::GitHub Packages rejected this token — check the job's permissions."
+            cat "$ERR"
+            exit 1
+          fi
+          cat "$ERR"
+          echo "GitHub Packages has not replicated ${VERSION} yet; the poll step will wait."
+
       - name: Wait for npmjs to serve the version
         env:
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           set -euo pipefail
           for i in $(seq 1 30); do
-            if npm view "freebuff-autocontinue@${VERSION}" version >/dev/null 2>&1; then
+            ERR="$(npm view "freebuff-autocontinue@${VERSION}" version 2>&1)" && {
               echo "npmjs serves ${VERSION} (attempt ${i})"
               exit 0
-            fi
-            echo "attempt ${i}/30: npmjs has not replicated ${VERSION} yet"
+            }
+            echo "attempt ${i}/30: ${ERR##*$'\n'}"
             sleep 10
           done
-          echo "npmjs never served ${VERSION} after 300s"
+          echo "::error::npmjs never served ${VERSION} after 300s"
           exit 1
 
       - name: Wait for GitHub Packages to serve the version
@@ -298,15 +328,15 @@ jobs:
         run: |
           set -euo pipefail
           for i in $(seq 1 30); do
-            if npm view "@kelvindesman/freebuff-autocontinue@${VERSION}" version \
-              --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            ERR="$(npm view "@kelvindesman/freebuff-autocontinue@${VERSION}" version \
+              --registry=https://npm.pkg.github.com 2>&1)" && {
               echo "GitHub Packages serves ${VERSION} (attempt ${i})"
               exit 0
-            fi
-            echo "attempt ${i}/30: GitHub Packages has not replicated ${VERSION} yet"
+            }
+            echo "attempt ${i}/30: ${ERR##*$'\n'}"
             sleep 10
           done
-          echo "GitHub Packages never served ${VERSION} after 300s"
+          echo "::error::GitHub Packages never served ${VERSION} after 300s"
           exit 1
 
   # BLOCKING GATE: every documented install path (README Quickstart) must work
