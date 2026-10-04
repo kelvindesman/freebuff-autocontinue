@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AGENTS.md` agent contract, `CODEOWNERS`, PR + issue templates.
 
 ### Fixed
+- **Promotion summary no longer lies**: the job summary step had unescaped
+  backticks, so the shell ran `formula/0.2.4` as a command substitution
+  (`formula/0.2.4\: No such file or directory`), and it unconditionally claimed a
+  formula PR had been opened even when the promotion had nothing to do. It now
+  takes the PR step's actual outcome and renders one of four states, with
+  `set -euo pipefail` so a future text bug fails loudly instead of silently.
 - **Promotion is now idempotent**: re-running the workflow after a promotion has
   already landed no longer fails with `Head ref must be a branch`. Merging the
   formula PR deletes its branch, so a second run tried to open a PR from a branch
