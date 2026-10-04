@@ -580,14 +580,35 @@ jobs:
           set -euo pipefail
           TITLE="chore(release): promote Homebrew formula to ${TAG}"
           BODY="Automated promotion after the ${TAG} smoke gate passed (npm latest + GitHub release are already live). Merge to publish the tap update."
-          EXISTING="$(gh pr list --head "formula/${TAG}" --state open --json number --jq '.[0].number // empty')"
+          FORMULA="Formula/freebuff-autocontinue.rb"
+          BRANCH="formula/v${TAG}"
+
+          # Idempotency. Merging the promotion PR deletes its branch, so a second
+          # run of this workflow would try to open a PR from a branch that no
+          # longer exists and fail with "Head ref must be a branch" — a red run
+          # that actually means the release is already finished. That matters
+          # because the manual dispatch exists precisely to be re-run until the
+          # release completes.
+          git fetch -q origin main
+          if git show "origin/main:${FORMULA}" | grep -q "download/v${TAG}/"; then
+            echo "main's ${FORMULA} already points at v${TAG}; nothing to promote."
+            exit 0
+          fi
+          if ! git ls-remote --exit-code --heads origin "refs/heads/${BRANCH}" >/dev/null 2>&1; then
+            echo "::error::${BRANCH} does not exist and main is not at ${TAG}."
+            echo "::error::Re-run the tag's workflow to restage the formula, or land"
+            echo "::error::the formula change by hand."
+            exit 1
+          fi
+
+          EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
           if [ -n "$EXISTING" ]; then
             echo "Promotion PR already open: #$EXISTING"
             exit 0
           fi
           gh pr create \
             --base main \
-            --head "formula/${TAG}" \
+            --head "$BRANCH" \
             --title "$TITLE" \
             --body "$BODY"
           echo "Opened promotion PR for ${TAG}; a maintainer must merge it."

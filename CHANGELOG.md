@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AGENTS.md` agent contract, `CODEOWNERS`, PR + issue templates.
 
 ### Fixed
+- **Promotion is now idempotent**: re-running the workflow after a promotion has
+  already landed no longer fails with `Head ref must be a branch`. Merging the
+  formula PR deletes its branch, so a second run tried to open a PR from a branch
+  that no longer exists — a red run meaning the opposite of what it looked like.
+  The step now exits 0 when `main`'s formula already points at the version, and
+  fails with an actionable message only when the branch is genuinely missing.
+  This matters because the manual dispatch exists to be re-run until done.
 - **Formula promotion PR could not be opened**: the `promote` job lacked
   `pull-requests: write`, so `gh pr create` failed with `GraphQL: Resource not
   accessible by integration (createPullRequest)` — and it failed *after* npm
