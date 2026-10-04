@@ -11,6 +11,19 @@ on:
   push:
     tags:
       - "v*"
+  # Manual escape hatch. Re-running the pipeline for a tag is impossible
+  # (`gh run rerun` replays the workflow *as of that tag*), so this is how a
+  # release that already passed the smoke gate gets promoted after the npm-side
+  # setting is fixed, without cutting and burning another version number:
+  #
+  #   gh workflow run release.yml -f version=0.2.4
+  #
+  # Every tag-triggered job is skipped on dispatch; only `promote` runs.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to promote to latest, without the leading v"
+        required: true
 
 permissions:
   contents: write
@@ -23,6 +36,7 @@ concurrency:
 jobs:
   verify:
     name: Verify tag matches package version
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -74,6 +88,7 @@ jobs:
 
   binaries:
     name: Compile standalone binaries
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: verify
@@ -108,6 +123,7 @@ jobs:
   # unverified version.
   github-release:
     name: GitHub prerelease + staged formula
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [verify, binaries]
@@ -168,6 +184,7 @@ jobs:
   # Prerelease publish: `next` dist-tag only. Never `latest`.
   publish-npm:
     name: Publish to npm as prerelease (next)
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [verify, github-release]
@@ -203,6 +220,7 @@ jobs:
 
   publish-gpr:
     name: Publish to GitHub Packages
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [verify, github-release]
@@ -254,6 +272,7 @@ jobs:
   # than treating a propagation race as a broken release.
   await-registries:
     name: Await registry propagation
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [github-release, publish-npm, publish-gpr]
@@ -344,6 +363,7 @@ jobs:
   smoke:
     name: Smoke ${{ matrix.path }} (${{ matrix.os }})
     needs: [github-release, publish-npm, publish-gpr, await-registries]
+    if: github.event_name == 'push'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions:
@@ -449,6 +469,9 @@ jobs:
   promote:
     name: Promote to latest
     needs: [smoke]
+    # On a tag: only after every smoke path passed. On manual dispatch: the
+    # smoke job is skipped, so this is the whole point of the escape hatch.
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.smoke.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -457,6 +480,17 @@ jobs:
       # exchanges this identity for a short-lived registry token.
       id-token: write
     steps:
+      - name: Resolve version
+        id: ver
+        run: echo "version=${{ inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      # The package name comes from package.json, and on a manual dispatch
+      # GITHUB_REF_NAME is the branch, so check out the tag being promoted.
+      - name: Checkout the release tag
+        uses: actions/checkout@v5
+        with:
+          ref: v${{ steps.ver.outputs.version }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -476,7 +510,7 @@ jobs:
       - name: Promote npm dist-tag to latest
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
           PACKAGE="$(node -p "require('./package.json').name")"
@@ -526,7 +560,8 @@ jobs:
       - name: Mark GitHub release as latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${GITHUB_REF_NAME}" --latest --prerelease=false
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: gh release edit "v${VERSION#v}" --latest --prerelease=false
 
       # The `main: PR + gate required` ruleset blocks every direct push to main,
       # including GITHUB_TOKEN ones, and that is deliberate: no automated write
@@ -535,7 +570,7 @@ jobs:
       - name: Open Homebrew formula promotion PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
           TITLE="chore(release): promote Homebrew formula to ${TAG}"
@@ -553,11 +588,13 @@ jobs:
           echo "Opened promotion PR for ${TAG}; a maintainer must merge it."
 
       - name: Summarize promotion state
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           {
-            echo "### Release ${GITHUB_REF_NAME} promoted"
+            echo "### Release $VERSION promoted"
             echo
             echo "- npm \\`latest\\`: done"
             echo "- GitHub release marked latest: done"
-            echo "- Homebrew formula: PR opened from \\`formula/${GITHUB_REF_NAME}\\` — merge it to publish the tap update"
+            echo "- Homebrew formula: PR opened from \\`formula/${VERSION}\\` — merge it to publish the tap update"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AGENTS.md` agent contract, `CODEOWNERS`, PR + issue templates.
 
 ### Fixed
+- **Manual promotion escape hatch**: `release.yml` takes a `workflow_dispatch`
+  trigger with a `version` input, and every tag-triggered job is skipped on
+  dispatch so `promote` runs alone. A release that passed the smoke gate but
+  failed at promotion can now be finished with
+  `gh workflow run release.yml -f version=X.Y.Z` instead of cutting another
+  version. `gh run rerun` cannot do this — it replays the workflow as of the tag.
+  `promote` also checks out the tag it promotes (it previously read
+  `package.json` without a checkout, and ignored its input on dispatch).
 - **Release promotion**: `promote` now has two credential paths. It prefers an
   `NPM_TOKEN` repository secret when one exists, and otherwise promotes over OIDC
   by stripping the empty `_authToken` entry `actions/setup-node` leaves in the

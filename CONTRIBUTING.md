@@ -101,6 +101,17 @@ bun run release:tag 0.2.0       # verifies, tags, pushes -> publish starts
 
 Add `--dry-run` to either to check everything and change nothing.
 
+If a release already passed the smoke gate but failed at promotion (an npm-side
+setting, usually), you do **not** need a new version number:
+
+```bash
+gh workflow run release.yml -f version=0.2.4
+```
+
+That dispatches `promote` alone — every tag-triggered job is skipped — so it
+moves npm `latest`, marks the GitHub release latest, and opens the formula PR.
+`gh run rerun` cannot do this, because it replays the workflow as of the tag.
+
 The script refuses to run on a dirty tree, off `main`, on a version that is not
 newer than the last release, when `package.json` and `src/cli.ts` disagree, or
 when the tag already exists locally or on origin. It never pushes to `main`,
