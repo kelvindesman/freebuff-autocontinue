@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   classify,
   extractQuestion,
+  extractQuestionOptions,
   extractStatus,
   isIdleReady,
   isWorkingState,
@@ -49,6 +50,63 @@ describe("extractQuestion", () => {
       "│ ↑↓ navigate • Enter select │\r\n" +
       "╰── Submit ──╯";
     expect(extractQuestion(pane)).toContain("Deploy to staging?");
+  });
+});
+
+describe("extractQuestionOptions", () => {
+  it("extracts radio options from a modal box", () => {
+    const pane =
+      "╭── Some questions for you ──╮\n" +
+      "│ Which ticket should I pick? │\n" +
+      "│ ↑↓ navigate • Enter select │\n" +
+      "│ ○ Option A │\n" +
+      "│ ● Option B │\n" +
+      "╰── Submit ──╯";
+    expect(extractQuestionOptions(pane)).toEqual(["Option A", "Option B"]);
+  });
+
+  it("handles checkbox, bracket, and paren markers", () => {
+    const pane =
+      "Some questions for you\n" +
+      "☐ First\n" +
+      "☑ Second\n" +
+      "[ ] Third\n" +
+      "[x] Fourth\n" +
+      "( ) Fifth\n" +
+      "(*) Sixth\n" +
+      "↑↓ navigate • Enter select";
+    expect(extractQuestionOptions(pane)).toEqual([
+      "First",
+      "Second",
+      "Third",
+      "Fourth",
+      "Fifth",
+      "Sixth",
+    ]);
+  });
+
+  it("returns empty when no modal is present", () => {
+    expect(extractQuestionOptions("agent finished editing src/payroll.ts")).toEqual([]);
+  });
+
+  it("ignores question text and chrome lines", () => {
+    const pane =
+      "╭── Some questions for you ──╮\n" +
+      "│ Real question here │\n" +
+      "│ ↑↓ navigate • Enter select │\n" +
+      "│ ○ Only option │\n" +
+      "╰── Submit ──╯";
+    const opts = extractQuestionOptions(pane);
+    expect(opts).toEqual(["Only option"]);
+  });
+
+  it("handles ANSI escapes around options", () => {
+    const pane =
+      "\x1b[1m╭── Some questions for you ──╮\x1b[0m\r\n" +
+      "│ \x1b[36m○ Deploy to staging?\x1b[0m │\r\n" +
+      "│ ↑↓ navigate • Enter select │\r\n" +
+      "╰── Submit ──╯";
+    expect(extractQuestionOptions(pane)).toEqual(["Deploy to staging?"]);
   });
 });
 

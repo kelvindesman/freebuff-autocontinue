@@ -70,6 +70,27 @@ export function isIdleReady(text: string): boolean {
   return false;
 }
 
+export const QUESTION_OPTION_RE = /^([☐☑○●]|\(\s*\)|\[\s*\]|\[x\]|\(\*\))\s*(.+)$/i;
+
+export function extractQuestionOptions(text: string): string[] {
+  const cleaned = stripAnsi(text);
+  if (!cleaned.includes("Some questions for you") && !cleaned.includes("Enter select")) {
+    return [];
+  }
+  const options: string[] = [];
+  for (const line of cleaned.split("\n")) {
+    const clean = line.replace(/^[│\s]+|[│\s]+$/g, "");
+    if (!clean) {
+      continue;
+    }
+    const m = clean.match(QUESTION_OPTION_RE);
+    if (m) {
+      options.push((m[2] ?? "").trim());
+    }
+  }
+  return options;
+}
+
 export function extractQuestion(text: string): string {
   const cleaned = stripAnsi(text);
   if (!cleaned.includes("Some questions for you") && !cleaned.includes("Enter select")) {

@@ -6,6 +6,7 @@
 import {
   classify,
   extractQuestion,
+  extractQuestionOptions,
   extractStatus,
   isWorkingState,
 } from "./classifier.js";
@@ -330,19 +331,53 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         }
 
         const parsed = Number.parseInt(choice, 10);
+        const optionCount = extractQuestionOptions(pane).length || 5;
         const optNum = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
-        for (let i = 0; i < optNum - 1; i++) {
+        const target = Math.min(optNum, optionCount);
+        for (let i = 0; i < target - 1; i++) {
           sendEnter(name, "Down");
           await new Promise((r) => setTimeout(r, 300));
         }
 
-        console.log(`[autocontinue] Submitting option ${optNum}…`);
-        sendEnter(name, enterKey); // select option
+        console.log(`[autocontinue] Submitting option ${target} (of ${optionCount})…`);
+        sendEnter(name, enterKey); // toggle/select option
+        await new Promise((r) => setTimeout(r, 400));
+        // Navigate from the selected option down to Submit, then confirm.
+        const downsToSubmit = Math.max(1, optionCount - target + 1);
+        for (let i = 0; i < downsToSubmit; i++) {
+          sendEnter(name, "Down");
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        sendEnter(name, enterKey); // Submit
         await new Promise((r) => setTimeout(r, 1000));
-        sendEnter(name, enterKey); // confirm / Submit
+
+        // Verify the modal actually dismissed; retry if it is still open.
+        let dismissed = classify(capture(name)).action !== "question";
+        for (let attempt = 0; attempt < 3 && !dismissed; attempt++) {
+          sendEnter(name, enterKey);
+          await new Promise((r) => setTimeout(r, 800));
+          dismissed = classify(capture(name)).action !== "question";
+          if (dismissed) {
+            break;
+          }
+          sendEnter(name, "Down");
+          await new Promise((r) => setTimeout(r, 200));
+          sendEnter(name, enterKey);
+          await new Promise((r) => setTimeout(r, 800));
+          dismissed = classify(capture(name)).action !== "question";
+        }
+        if (dismissed) {
+          console.log(
+            `[autocontinue] Option ${target} submitted successfully, modal dismissed`
+          );
+        } else {
+          console.log(
+            `[autocontinue] Warning: modal may still be open after submitting option ${target}`
+          );
+        }
         acted.question = now;
         lastSend = now;
-        logSnapshot(logFile, name, `answered-question: option ${optNum}`);
+        logSnapshot(logFile, name, `answered-question: option ${target}`);
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       }
