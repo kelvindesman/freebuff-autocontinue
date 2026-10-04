@@ -30,6 +30,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 const PACKAGE_JSON = "package.json";
+const PACKAGE_LOCK = "package-lock.json";
 const CLI_TS = "src/cli.ts";
 const CHANGELOG = "CHANGELOG.md";
 const UNRELEASED_HEADING = "## [Unreleased]";
@@ -126,6 +127,33 @@ function tagExistsRemote(tag) {
   return out.length > 0;
 }
 
+function assertLockInSync() {
+  let lock;
+  try {
+    lock = JSON.parse(read(PACKAGE_LOCK));
+  } catch (err) {
+    fail(`cannot read ${PACKAGE_LOCK}: ${err.message}`);
+  }
+  const declared = {
+    ...(JSON.parse(read(PACKAGE_JSON)).dependencies || {}),
+    ...(JSON.parse(read(PACKAGE_JSON)).devDependencies || {}),
+  };
+  // The Homebrew formula installs dev dependencies with `npm ci`, which fails
+  // with EUSAGE when the lockfile does not cover every declared dependency.
+  // That is only visible during a tagged release's brew smoke, by which point a
+  // version number has been burned. This check is offline and catches the same
+  // drift in a second, before the tag.
+  const missing = Object.keys(declared).filter(
+    (name) => !lock.packages?.[`node_modules/${name}`]
+  );
+  if (missing.length > 0) {
+    fail(
+      `${PACKAGE_LOCK} is out of sync with ${PACKAGE_JSON}: missing ${missing.join(", ")}\n` +
+        `Run: npm install --package-lock-only   (the Homebrew brew build uses npm ci)`
+    );
+  }
+}
+
 function assertCleanTree() {
   const status = gitOut(["status", "--porcelain"]);
   if (status.length > 0) {
@@ -208,6 +236,7 @@ function prepare(rawVersion, dryRun) {
 
   assertOnMain();
   assertCleanTree();
+  assertLockInSync();
 
   if (cmp(version, from) <= 0) {
     fail(`${version} is not newer than the released ${from}`);
