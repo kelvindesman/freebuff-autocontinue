@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Question-modal submit now navigates to Submit and verifies dismissal**: the
+  supervisor counts the modal options, moves down to the Submit row instead of
+  pressing Enter twice, and retries (up to 3x) when the modal is still open —
+  so a swallowed keystroke no longer leaves the agent parked on a question.
+
 ## [0.2.4] - 2026-10-04
 
 ## [0.2.3] - 2026-10-04

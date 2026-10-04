@@ -7,7 +7,12 @@
 import fs, { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { classify, extractStatus, stripAnsi } from "./classifier.js";
+import {
+  classify,
+  extractQuestionOptions,
+  extractStatus,
+  stripAnsi,
+} from "./classifier.js";
 import { CONTINUE_ID_RE, DEFAULT_MODEL, DEFAULT_TEXT } from "./constants.js";
 import { runInteractiveWizard } from "./interactive.js";
 import { pickCheapest } from "./model-picker.js";
@@ -181,6 +186,12 @@ export function selfTest(): number {
     classify(
       "╭── Some questions for you ──╮\n│ Which ticket? │\n│ ↑↓ navigate • Enter select │\n╰── Submit ──╯"
     ).action === "question"
+  );
+  check(
+    "question options counted",
+    extractQuestionOptions(
+      "╭── Some questions for you ──╮\n│ ○ Option A │\n│ ● Option B │\n│ ↑↓ navigate • Enter select │\n╰── Submit ──╯"
+    ).length === 2
   );
 
   check("login gate -> login", classify("Press ENTER to login...").action === "login");
