@@ -475,7 +475,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      # gh release edit
       contents: write
+      # gh pr create for the formula promotion. Without this the job dies with
+      # "GraphQL: Resource not accessible by integration (createPullRequest)"
+      # *after* npm and the GitHub release are already promoted.
+      pull-requests: write
       # Required for the OIDC promotion path below. npm's Trusted Publisher
       # exchanges this identity for a short-lived registry token.
       id-token: write

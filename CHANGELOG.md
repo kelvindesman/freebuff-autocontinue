@@ -50,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AGENTS.md` agent contract, `CODEOWNERS`, PR + issue templates.
 
 ### Fixed
+- **Formula promotion PR could not be opened**: the `promote` job lacked
+  `pull-requests: write`, so `gh pr create` failed with `GraphQL: Resource not
+  accessible by integration (createPullRequest)` — and it failed *after* npm
+  `latest` and the GitHub release had already been promoted, leaving Homebrew
+  silently a version behind with no error on the parts that had succeeded.
 - **Manual promotion escape hatch**: `release.yml` takes a `workflow_dispatch`
   trigger with a `version` input, and every tag-triggered job is skipped on
   dispatch so `promote` runs alone. A release that passed the smoke gate but
