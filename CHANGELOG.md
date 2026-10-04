@@ -63,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     GitHub Packages reads were rejected — which the poll misread as propagation
     lag and retried for 300s. It now also fails fast with the real npm error
     when a registry rejects the token, instead of swallowing it.
+  - the Homebrew smoke resolves the tap with `brew --repository`, not
+    `brew tap --prefix` (no such option) or `brew --prefix <tap>` (which
+    resolves formula names, not taps).
 - **Mid-turn keystroke injection**: `classify()` had no working-state guard, so a stale
   session-ended / paywall / fallback banner retained by `capture-pane -S -200` could fire a
   send *while the agent was working*. Hard stops now take precedence over everything else,

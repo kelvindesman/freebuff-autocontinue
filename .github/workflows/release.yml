@@ -406,6 +406,8 @@ jobs:
       # `brew install --build-from-source <path>.rb` ("Homebrew requires
       # formulae to be in a tap"), so tap this repo and check out the staged
       # formula branch — that tests exactly what `promote` will merge.
+      # `brew --repository`, not `brew tap --prefix`: the latter does not exist,
+      # and `brew --prefix <tap>` resolves formula names, not taps.
       - name: Smoke Homebrew formula from the staged branch
         if: matrix.path == 'brew'
         env:
@@ -414,7 +416,7 @@ jobs:
           set -euo pipefail
           brew untap kelvindesman/freebuff-autocontinue 2>/dev/null || true
           brew tap kelvindesman/freebuff-autocontinue "https://github.com/${{ github.repository }}"
-          TAP_DIR="$(brew tap --prefix kelvindesman/freebuff-autocontinue)"
+          TAP_DIR="$(brew --repository kelvindesman/freebuff-autocontinue)"
           git -C "$TAP_DIR" fetch origin "refs/heads/formula/${TAG}:refs/heads/formula/${TAG}"
           git -C "$TAP_DIR" checkout "formula/${TAG}"
           brew install --build-from-source kelvindesman/freebuff-autocontinue/freebuff-autocontinue
