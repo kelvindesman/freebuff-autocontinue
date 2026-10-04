@@ -453,6 +453,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      # Required for the OIDC promotion path below. npm's Trusted Publisher
+      # exchanges this identity for a short-lived registry token.
       id-token: write
     steps:
       - name: Setup Node.js
@@ -461,26 +463,65 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      # `npm dist-tag add` is a registry *write*, and npm's Trusted Publishing
-      # (OIDC) authorizes `npm publish` only. `actions/setup-node` mints an OIDC
-      # token for this job, and npm rejects it with `E401 Unable to
-      # authenticate` — which is how the v0.2.4 run failed after every install
-      # path passed. Promotion therefore needs a classic automation token.
-      - name: Require NPM_TOKEN
+      # `npm dist-tag add` is a registry *write*, and until npm 11.21.0 the OIDC
+      # token exchange ran only inside `npm publish` — so `dist-tag` saw an empty
+      # token and failed `E401`, which is how v0.2.4 died after passing all seven
+      # install paths. npm shipped opt-in dist-tag support for trusted publishers
+      # on 2026-09-30, so this is now a *configuration* problem, not a
+      # capability gap. Two supported paths, tried in order:
+      #
+      #   1. NPM_TOKEN secret (classic automation token) — always works.
+      #   2. OIDC via the Trusted Publisher, if npmjs.com has
+      #      "Allow npm dist-tag" enabled for this package.
+      - name: Promote npm dist-tag to latest
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ github.ref_name }}
         run: |
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::error::NPM_TOKEN is not set. Create an npm automation token"
-            echo "::error::(npmjs.com -> Access Tokens -> Generate, 'Automation')"
-            echo "::error::and add it as the NPM_TOKEN repository secret."
+          set -euo pipefail
+          PACKAGE="$(node -p "require('./package.json').name")"
+          PROMOTE="npm dist-tag add ${PACKAGE}@${VERSION#v} latest"
+
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            echo "Promoting with the NPM_TOKEN automation token."
+            NODE_AUTH_TOKEN="$NPM_TOKEN" $PROMOTE
+            exit 0
+          fi
+
+          echo "NPM_TOKEN is not set; promoting with OIDC (Trusted Publisher)."
+          # setup-node writes `_authToken=${NODE_AUTH_TOKEN}` into the npmrc it
+          # points NPM_CONFIG_USERCONFIG at. With no token that line reads as an
+          # empty credential, and npm treats *any* _authToken entry as "auth is
+          # configured" and skips the OIDC exchange. Delete the line so npm falls
+          # back to the identity it can mint itself.
+          NPMRC="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$NPMRC" ]; then
+            echo "npmrc before: $NPMRC"
+            sed -i '' -e '/_authToken/d' "$NPMRC" 2>/dev/null \
+              || sed -i -e '/_authToken/d' "$NPMRC"
+            echo "npmrc after:"
+            cat "$NPMRC"
+          else
+            echo "No npmrc at $NPMRC; nothing to strip."
+          fi
+
+          # dist-tag over OIDC needs npm >= 11.21.0.
+          CURRENT="$(npm --version)"
+          echo "Bundled npm is ${CURRENT}."
+          npm install -g npm@latest >/dev/null 2>&1
+          UPGRADED="$(npm --version)"
+          echo "npm after upgrade: ${UPGRADED}"
+          if [ "$(printf '%s\n%s\n' "11.21.0" "$UPGRADED" | sort -V | head -1)" != "11.21.0" ]; then
+            echo "::error::npm ${UPGRADED} is too old for OIDC dist-tag; need >= 11.21.0."
             exit 1
           fi
 
-      - name: Promote npm dist-tag to latest
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm dist-tag add "freebuff-autocontinue@${GITHUB_REF_NAME#v}" latest
+          if ! NODE_AUTH_TOKEN="" $PROMOTE; then
+            echo "::error::OIDC promotion failed. Enable 'Allow npm dist-tag' for this"
+            echo "::error::package's Trusted Publisher on npmjs.com, or add an NPM_TOKEN"
+            echo "::error::repository secret. Both are one-time settings."
+            exit 1
+          fi
 
       - name: Mark GitHub release as latest
         env:

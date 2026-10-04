@@ -132,9 +132,18 @@ Then:
 4. First release only: link npm Trusted Publisher once (npm package settings
    → Trusted Publisher → repo `kelvindesman/freebuff-autocontinue`, workflow
    `release.yml`).
-5. Required secret: `NPM_TOKEN`, an npm **automation token** (npmjs.com →
-   Access Tokens → Generate → Automation). Trusted Publishing covers
-   `npm publish` only, so the `promote` job needs a real token to run
-   `npm dist-tag add`. The job fails with an explicit message if it is unset.
+5. Promotion credentials, one-time setup, pick either:
+   - **No secret (recommended).** npmjs.com → the package → Trusted Publisher
+     → tick **Allow npm dist-tag**. The `promote` job then uses OIDC, matching
+     the token-free publish path. Requires npm >= 11.21.0, which the job
+     installs for itself.
+   - **`NPM_TOKEN` secret.** npmjs.com → Access Tokens → Generate → Automation,
+     added as the `NPM_TOKEN` repository secret. Used in preference to OIDC when
+     present.
+
+   Promotion is the one step that cannot ride on Trusted Publishing alone
+   without that opt-in: `npm dist-tag add` is a registry write, and before npm
+   11.21.0 the OIDC exchange only ran inside `npm publish`. That is why a
+   release can pass every install path and still fail to promote.
 6. Optional drift check: the `Smoke Latest` workflow runs nightly against
    whatever is currently published.

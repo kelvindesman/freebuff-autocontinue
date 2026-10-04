@@ -50,11 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AGENTS.md` agent contract, `CODEOWNERS`, PR + issue templates.
 
 ### Fixed
-- **Release promotion**: the `promote` job now authenticates `npm dist-tag add`
-  with the `NPM_TOKEN` secret and fails with an explicit message when it is
-  unset. npm's Trusted Publishing authorizes `npm publish` only, so the OIDC
-  token `actions/setup-node` mints is rejected by `dist-tag` with `E401` — the
-  reason `v0.2.4` passed all seven install paths and then could not be promoted.
+- **Release promotion**: `promote` now has two credential paths. It prefers an
+  `NPM_TOKEN` repository secret when one exists, and otherwise promotes over OIDC
+  by stripping the empty `_authToken` entry `actions/setup-node` leaves in the
+  active `.npmrc`, upgrading npm, and requiring >= 11.21.0 — the release in which
+  npm added opt-in dist-tag support for Trusted Publishers. With **Allow npm
+  dist-tag** enabled on npmjs.com, promotion needs no stored secret at all, which
+  is why `v0.2.4` failed `E401` on `npm dist-tag add` after passing all seven
+  install paths. Both failure modes now print the exact npm error and the fix.
 - **Release smoke gate**: the blocked `v0.2.0` run exposed three defects in
   `release.yml`, all fixed:
   - a new `await-registries` job polls npmjs *and* GitHub Packages until the new
