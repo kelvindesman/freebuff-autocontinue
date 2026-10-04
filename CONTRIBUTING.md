@@ -132,5 +132,9 @@ Then:
 4. First release only: link npm Trusted Publisher once (npm package settings
    → Trusted Publisher → repo `kelvindesman/freebuff-autocontinue`, workflow
    `release.yml`).
-5. Optional drift check: the `Smoke Latest` workflow runs nightly against
+5. Required secret: `NPM_TOKEN`, an npm **automation token** (npmjs.com →
+   Access Tokens → Generate → Automation). Trusted Publishing covers
+   `npm publish` only, so the `promote` job needs a real token to run
+   `npm dist-tag add`. The job fails with an explicit message if it is unset.
+6. Optional drift check: the `Smoke Latest` workflow runs nightly against
    whatever is currently published.
