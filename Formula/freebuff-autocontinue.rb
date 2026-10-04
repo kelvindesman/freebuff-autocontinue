@@ -3,8 +3,8 @@ class FreebuffAutocontinue < Formula
   homepage "https://github.com/kelvindesman/freebuff-autocontinue"
   # NOTE: the tag-driven release workflow patches `url` + `sha256` on every
   # version tag. The placeholder below is only for local `brew install --build-from-source` checks.
-  url "https://github.com/kelvindesman/freebuff-autocontinue/releases/download/v0.1.8/freebuff-autocontinue-v0.1.8.tar.gz"
-  sha256 "77ef88dced2b327a63495f504812af0f49ee05da95593b8d9efd9685c4150c41"
+  url "https://github.com/kelvindesman/freebuff-autocontinue/releases/download/v0.2.4/freebuff-autocontinue-v0.2.4.tar.gz"
+  sha256 "b2ddf2ae79c7a17f3ed482aa6ad2cd9e28f63ace626befab7c27fc94d7bd2aa3"
   license "MIT"
   head "https://github.com/kelvindesman/freebuff-autocontinue.git", branch: "main"
 
