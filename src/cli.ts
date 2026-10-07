@@ -22,6 +22,7 @@ import {
   getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
 import { checkPlatform } from "./platform.js";
+import { collectSessionProcs, formatStatusReport, reapTracked } from "./proc-tree.js";
 import { setColorEnabled } from "./render.js";
 import {
   isTelemetryEnabled,
@@ -246,7 +247,11 @@ OPTIONS:
   --log-file <path>          Path to append screen snapshots [default: freebuff-autocontinue.log]
   --resume                   Attach watcher to existing session if found [default: true]
   --no-resume                Disallow attaching to existing session
-  --kill-on-exit             Kill tmux session on exit [default: leave running]
+  --kill-on-exit             Kill tmux session on exit (implied by default reaping)
+  --no-reap                  Leave the tmux session and its processes running on exit
+                             [default: reap pane process tree on exit/SIGINT/crash]
+  --status, --ps             List sessions on the freebuff-auto socket with pane pid
+                             and live descendant processes, then exit
   --allow-risky              Also consider TEST/peak-window rows in /model fallback
   --no-banner                Silence rotating community / support reminders
   --no-color                 Disable ANSI colors (also honors the NO_COLOR env var)
@@ -306,6 +311,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     resume: { type: "boolean" as const, default: true },
     "no-resume": { type: "boolean" as const, default: false },
     "kill-on-exit": { type: "boolean" as const, default: false },
+    "no-reap": { type: "boolean" as const, default: false },
+    status: { type: "boolean" as const, default: false },
+    ps: { type: "boolean" as const, default: false },
     "allow-risky": { type: "boolean" as const, default: false },
     "no-banner": { type: "boolean" as const, default: false },
     "no-color": { type: "boolean" as const, default: false },
@@ -403,6 +411,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 3;
   }
 
+  if (values.status || values.ps) {
+    console.log(formatStatusReport(collectSessionProcs()));
+    return 0;
+  }
+
   const sessionName = values.session || "fb-auto";
 
   if (values.attach) {
@@ -471,6 +484,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     logFile: values["log-file"] || "freebuff-autocontinue.log",
     allowRisky: Boolean(values["allow-risky"]),
     killOnExit: Boolean(values["kill-on-exit"]),
+    reap: !values["no-reap"],
     noBanner: Boolean(values["no-banner"]),
     isResumed: sessionExists,
     interactive: Boolean(values.interactive),
@@ -511,12 +525,12 @@ if (shouldAutoRun(entryArg, import.meta.url)) {
       `[autocontinue] unexpected error: ${err instanceof Error ? err.message : String(err)}`
     );
     console.error(
-      "[autocontinue] any tmux session is still running; reattach with --attach"
+      "[autocontinue] reaping supervised tmux session(s); pass --no-reap to keep them"
     );
     console.error(
       "[autocontinue] opt in to anonymous crash reports: freebuff-autocontinue --telemetry-opt-in"
     );
-    process.exit(1);
+    void reapTracked().finally(() => process.exit(1));
   });
 
   main().then((code) => {

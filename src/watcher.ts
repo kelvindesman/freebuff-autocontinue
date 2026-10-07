@@ -20,6 +20,7 @@ import {
   formatPacificTime,
   getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
+import { hostReapDeps, reapSession, trackSession, untrackSession } from "./proc-tree.js";
 import { box, cyan, dim, yellow } from "./render.js";
 import {
   attachSession,
@@ -53,6 +54,8 @@ export interface WatcherOptions {
   logFile: string;
   allowRisky: boolean;
   killOnExit: boolean;
+  /** Reap the pane's process tree and tmux session on exit (default true). */
+  reap?: boolean;
   noBanner: boolean;
   isResumed?: boolean;
   interactive?: boolean;
@@ -82,6 +85,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
     logFile,
     allowRisky,
     killOnExit,
+    reap = true,
     noBanner,
     interactive = false,
     autoAnswer = true,
@@ -111,10 +115,19 @@ export async function watch(opts: WatcherOptions): Promise<number> {
   console.log(`[autocontinue] preferred model: ${preferredModel}`);
   console.log(`[autocontinue] on credit exhausted: ${onExhaust}`);
 
-  function stop(code: number, why: string): number {
+  async function stop(code: number, why: string): Promise<number> {
     console.log(`[autocontinue] STOP ${why}`);
     logSnapshot(logFile, name, `stop:${why}`);
-    if (killOnExit) {
+    if (reap) {
+      const result = await reapSession(name, hostReapDeps);
+      untrackSession(name);
+      console.log(
+        `[autocontinue] reaped ${result.pids.length} process(es) (${result.killed} needed SIGKILL)`
+      );
+      if (continueId) {
+        console.log(`resume this chat later: freebuff --continue ${continueId}`);
+      }
+    } else if (killOnExit) {
       killSession(name);
     } else {
       console.log("session left running — reattach with:");
@@ -124,17 +137,16 @@ export async function watch(opts: WatcherOptions): Promise<number> {
     return code;
   }
 
-  // Handle Ctrl+C cleanly
+  // Handle Ctrl+C cleanly: reap the tree (second Ctrl+C forces exit).
   let isStopping = false;
   const sigintHandler = () => {
-    if (isStopping) return;
+    if (isStopping) process.exit(130);
     isStopping = true;
-    console.log("\n[autocontinue] stopped by user (session left running).");
-    console.log(`reattach: npx freebuff-autocontinue --attach`);
-    console.log(`kill it:  tmux -L freebuff-auto kill-session -t ${name}`);
-    process.exit(130);
+    console.log("\n[autocontinue] stopped by user.");
+    void stop(130, "sigint").then((code) => process.exit(code));
   };
   process.on("SIGINT", sigintHandler);
+  if (reap) trackSession(name);
 
   if (!opts.isResumed) {
     if (!spawnSession(name, cmd, cwd)) {
@@ -168,11 +180,11 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           const extra = continueId ? ["--continue", continueId] : ["--continue"];
           console.log(`[autocontinue] relaunching (${restarts}/${maxRestarts}) ...`);
           if (!spawnSession(name, cmd, cwd, extra)) {
-            return stop(3, "relaunch-failed");
+            return await stop(3, "relaunch-failed");
           }
           continue;
         }
-        return stop(0, "retries-exhausted");
+        return await stop(0, "retries-exhausted");
       }
 
       const pane = capture(name);
@@ -295,7 +307,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
 
       // Handle hard stops
       if (action?.startsWith("stop:")) {
-        return stop(2, action);
+        return await stop(2, action);
       }
 
       // Handle interactive question modal (agent calls ask_question mid-turn)
@@ -443,7 +455,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         let policy = onExhaust;
         if (interactive) {
           const choice = await promptMidRunAccountSwitch();
-          if (choice === "stop") return stop(0, "user-exit-credit-exhausted");
+          if (choice === "stop") return await stop(0, "user-exit-credit-exhausted");
           policy = choice === "switch" ? "switch" : "wait";
         }
 
@@ -485,7 +497,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           pickerOpened = false;
           continue;
         } else {
-          return stop(0, "credit-exhausted");
+          return await stop(0, "credit-exhausted");
         }
       }
 
@@ -552,7 +564,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[autocontinue] error in watch loop: ${msg}`);
-    return stop(1, `error:${msg}`);
+    return await stop(1, `error:${msg}`);
   } finally {
     process.removeListener("SIGINT", sigintHandler);
   }
