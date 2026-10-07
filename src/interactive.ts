@@ -5,8 +5,11 @@
 
 import { stdin as input, stdout as output } from "node:process";
 import readline from "node:readline/promises";
+import type { QuestionModal } from "./classifier.js";
 import { DEFAULT_MODEL, DEFAULT_TEXT } from "./constants.js";
 import { formatDuration, getSecondsUntilPacificMidnight } from "./pacific-time.js";
+import { interpretKey, type QuestionChoice } from "./question.js";
+import { countdown } from "./render.js";
 
 export interface InteractiveConfig {
   text: string;
@@ -113,53 +116,54 @@ export async function promptMidRunAccountSwitch(): Promise<
   }
 }
 
-export async function promptUserChoice(timeoutSec = 30): Promise<string> {
+/**
+ * Ask a human which option to submit. Non-TTY stdin or a zero timeout picks
+ * the recommended option instantly. On a TTY: a live countdown, single-key
+ * selection (1-9, Enter = recommended, `a` = attach), and the recommended
+ * option is auto-picked when the countdown runs out.
+ */
+export async function promptQuestionChoice(
+  modal: QuestionModal,
+  timeoutSec = 30
+): Promise<QuestionChoice> {
+  const auto: QuestionChoice = {
+    action: "pick",
+    index: modal.recommended + 1,
+    source: "auto",
+  };
   if (!process.stdin.isTTY || timeoutSec <= 0) {
-    return "1";
+    return auto;
   }
 
-  process.stdout.write(
-    `\n[autocontinue] Enter option (1-9), press Enter for default/recommended, or 'a' to attach [timeout ${timeoutSec}s]: `
-  );
+  return new Promise<QuestionChoice>((resolve) => {
+    const stdin = process.stdin;
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
 
-  return new Promise<string>((resolve) => {
-    const rl = readline.createInterface({ input, output });
-    let resolved = false;
-
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        try {
-          rl.close();
-        } catch {}
-        console.log(
-          "\n[autocontinue] Timeout reached — auto-selecting recommended option (1)."
-        );
-        resolve("1");
+    const finish = (choice: QuestionChoice): void => {
+      timer.cancel();
+      stdin.off("data", onKey);
+      stdin.setRawMode(false);
+      stdin.pause();
+      resolve(choice);
+    };
+    const onKey = (key: string): void => {
+      const choice = interpretKey(key, modal.options.length, modal.recommended);
+      if (choice.action === "interrupt") {
+        finish({ action: "attach" });
+        process.kill(process.pid, "SIGINT");
+      } else if (choice.action !== "ignore") {
+        finish(choice);
       }
-    }, timeoutSec * 1000);
-
-    rl.question("")
-      .then((answer) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          try {
-            rl.close();
-          } catch {}
-          const trimmed = answer.trim();
-          resolve(trimmed || "1");
-        }
-      })
-      .catch(() => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          try {
-            rl.close();
-          } catch {}
-          resolve("1");
-        }
-      });
+    };
+    const timer = countdown(
+      `[autocontinue] auto-picking option ${modal.recommended + 1} in {s}s — press 1-${modal.options.length}, Enter = recommended, a = attach`,
+      timeoutSec
+    );
+    stdin.on("data", onKey);
+    void timer.done.then((expired) => {
+      if (expired) finish({ ...auto, source: "timeout" });
+    });
   });
 }

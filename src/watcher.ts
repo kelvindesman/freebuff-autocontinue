@@ -5,15 +5,14 @@
 
 import {
   classify,
-  extractQuestion,
-  extractQuestionOptions,
   extractStatus,
   isWorkingState,
+  parseQuestionModal,
 } from "./classifier.js";
 import { formatCommunityBanner, getNextCommunityMessage } from "./community.js";
 import { BALANCE_RE, COMPOSER_RE, CONTINUE_ID_RE } from "./constants.js";
 import type { HumanizeOptions } from "./humanize.js";
-import { promptMidRunAccountSwitch, promptUserChoice } from "./interactive.js";
+import { promptMidRunAccountSwitch, promptQuestionChoice } from "./interactive.js";
 import { extractLoginUrl, formatLoginBanner, openBrowser } from "./login.js";
 import { findModel, parseModelRows, pickBestFallback } from "./model-picker.js";
 import {
@@ -22,7 +21,8 @@ import {
   getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
 import { hostReapDeps, reapSession, trackSession, untrackSession } from "./proc-tree.js";
-import { box, cyan, dim, yellow } from "./render.js";
+import { formatQuestionBox } from "./question.js";
+import { cyan, dim, yellow } from "./render.js";
 import {
   attachSession,
   capture,
@@ -316,18 +316,15 @@ export async function watch(opts: WatcherOptions): Promise<number> {
 
       // Handle interactive question modal (agent calls ask_question mid-turn)
       if (action === "question") {
-        const qText = extractQuestion(pane);
-        const qKey = `question:${fnv1a(qText)}`;
+        const modal = parseQuestionModal(pane);
+        const qKey = `question:${fnv1a(modal.question + modal.options.join("|"))}`;
         if (acted[qKey] === undefined) {
           acted[qKey] = now;
           console.log(
-            `\n${box("[autocontinue] [QUESTION] Freebuff is asking a question", [
-              ...(qText || "(question modal active in tmux session)").split("\n"),
-              "",
-              `Attach to tmux directly: tmux -L freebuff-auto attach -t ${name}`,
-            ])}`
+            `\n${formatQuestionBox(modal, autoAnswer ? questionTimeout : 0)}\n` +
+              `Attach to tmux directly: tmux -L freebuff-auto attach -t ${name}`
           );
-          logSnapshot(logFile, name, `question-modal:\n${qText}`);
+          logSnapshot(logFile, name, `question-modal:\n${modal.question}`);
         }
 
         if (!autoAnswer) {
@@ -341,17 +338,16 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           continue;
         }
 
-        const choice = await promptUserChoice(questionTimeout);
+        const choice = await promptQuestionChoice(modal, questionTimeout);
 
-        if (choice.toLowerCase() === "a") {
+        if (choice.action === "attach") {
           console.log(`\n[autocontinue] Attaching to tmux session ${name}...`);
           attachSession(name);
           continue;
         }
 
-        const parsed = Number.parseInt(choice, 10);
-        const optionCount = extractQuestionOptions(pane).length || 5;
-        const optNum = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+        const optNum = choice.action === "pick" ? choice.index : modal.recommended + 1;
+        const optionCount = modal.options.length || 5;
         const target = Math.min(optNum, optionCount);
         for (let i = 0; i < target - 1; i++) {
           sendEnter(name, "Down");

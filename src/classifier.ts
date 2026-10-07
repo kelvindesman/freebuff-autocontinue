@@ -125,6 +125,25 @@ export function extractQuestion(text: string): string {
   return boxLines.join("\n").trim();
 }
 
+export interface QuestionModal {
+  question: string;
+  options: string[];
+  /** 0-based index of the recommended option (marked, else the first). */
+  recommended: number;
+}
+
+/** Question text, options and recommended option from a question-modal pane. */
+export function parseQuestionModal(text: string): QuestionModal {
+  const options = extractQuestionOptions(text);
+  const question = extractQuestion(text)
+    .split("\n")
+    .filter((line) => line && !QUESTION_OPTION_RE.test(line))
+    .map((line) => line.replace(/^[▼▶▲►▸]\s*/, ""))
+    .join("\n");
+  const marked = options.findIndex((o) => /recommended/i.test(o));
+  return { question, options, recommended: Math.max(0, marked) };
+}
+
 export function extractStatus(pane: string): StatusInfo {
   const text = stripAnsi(pane);
   const isWorking = isWorkingState(text);

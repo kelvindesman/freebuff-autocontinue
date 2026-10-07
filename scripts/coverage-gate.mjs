@@ -40,6 +40,7 @@ const DEFAULT_SUITE = [
   "tests/pacific-time.test.ts",
   "tests/platform.test.ts",
   "tests/proc-tree.test.ts",
+  "tests/question.test.ts",
   "tests/render.test.ts",
   "tests/status.test.ts",
   "tests/status-extra.test.ts",

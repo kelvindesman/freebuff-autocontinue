@@ -12,6 +12,7 @@ export * from "./model-picker.js";
 export * from "./pacific-time.js";
 export * from "./platform.js";
 export * from "./proc-tree.js";
+export * from "./question.js";
 export * from "./render.js";
 export * from "./telemetry.js";
 export * from "./tmux.js";
