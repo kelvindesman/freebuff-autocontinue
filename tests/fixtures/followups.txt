@@ -1,0 +1,22 @@
+   Call your suggest_followups tool with 3 followup suggestions for next steps (e.g. 'Add tests', 'Write docs', 'Refactor'), then stop. Do not edit files. ⎘
+  • Thinking
+    Just call suggest_followups with 3 suggestions.
+  Suggested followups:
+  → Add tests
+  → Write docs
+  → Refactor                                                                                                                                                   █
+                                                                                                                                                ⎘ • 16s • △▽   █
+ ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+ │ Supercharge Your Startup’s Finances with Puzzle                                                                                                         Ad │
+ │ Automate your bookkeeping tasks and real-time financial workflows with Puzzle's AI-native platform.                                                        │
+ │  Get Started  puzzle.io                                                                                                                                    │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ 58m left · 34.7K (27%)                                                                                                                          ✕ End session
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                                                              │
+│  ▍Enter a coding task or / for commands                                                                                                                      │
+│                                                                                                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ MiMo 2.6 Flash · <cwd> · /model to change ·
+ Chat: Use your ask_question tool to ask me which color I prefer (red, green, blue). Then reply with one...
+ ← for history · ? for help

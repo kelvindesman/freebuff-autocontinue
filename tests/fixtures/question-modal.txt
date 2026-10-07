@@ -1,0 +1,16 @@
+╭─────────────────────────────────────────────────────────────────── Some questions for you ───────────────────────────────────────────────────────────────────╮
+│                                                                                                                                                       Close ✕│
+│                                                                                                                                                              │
+│▼ Which color do you prefer?                                                                                                                                  │
+│  ○ Red                                                                                                                                                       │
+│  ○ Green                                                                                                                                                     │
+│  ○ Blue                                                                                                                                                      │
+│  ○ Custom                                                                                                                                                    │
+│                                                                                                                                                              │
+│╭──────────╮                                                                                                                                                  │
+││  Submit  │    ↑↓ navigate • Enter select                                                                                                                    │
+│╰──────────╯                                                                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ MiMo 2.6 Flash · <cwd> · /model to change ·
+ Chat: Use your ask_question tool to ask me which color I prefer (red, green, blue). Then reply with one...
+ ← for history · ? for help
