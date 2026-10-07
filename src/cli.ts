@@ -22,6 +22,7 @@ import {
   getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
 import { checkPlatform } from "./platform.js";
+import { setColorEnabled } from "./render.js";
 import {
   isTelemetryEnabled,
   setTelemetryConsent,
@@ -248,6 +249,7 @@ OPTIONS:
   --kill-on-exit             Kill tmux session on exit [default: leave running]
   --allow-risky              Also consider TEST/peak-window rows in /model fallback
   --no-banner                Silence rotating community / support reminders
+  --no-color                 Disable ANSI colors (also honors the NO_COLOR env var)
   --auto-answer             Auto-submit the recommended option when the agent asks a question [default: true]
   --no-auto-answer          Never auto-answer questions; wait for a human to attach
   --question-timeout <sec>  Seconds to wait for a human choice before auto-selecting [default: 30] (0 = instant)
@@ -306,6 +308,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     "kill-on-exit": { type: "boolean" as const, default: false },
     "allow-risky": { type: "boolean" as const, default: false },
     "no-banner": { type: "boolean" as const, default: false },
+    "no-color": { type: "boolean" as const, default: false },
     "auto-answer": { type: "boolean" as const, default: true },
     "no-auto-answer": { type: "boolean" as const, default: false },
     "question-timeout": { type: "string" as const, default: "30" },
@@ -326,6 +329,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   });
 
   const values = parsed.values;
+
+  if (values["no-color"]) {
+    setColorEnabled(false);
+  }
 
   if (values.help) {
     printHelp();

@@ -10,6 +10,7 @@ export * from "./login.js";
 export * from "./model-picker.js";
 export * from "./pacific-time.js";
 export * from "./platform.js";
+export * from "./render.js";
 export * from "./telemetry.js";
 export * from "./tmux.js";
 export * from "./watcher.js";

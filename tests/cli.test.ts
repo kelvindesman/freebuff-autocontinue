@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { main, selfTest, shouldAutoRun } from "../src/cli.js";
 import { checkPlatform } from "../src/platform.js";
+import { isColorEnabled, setColorEnabled } from "../src/render.js";
 
 describe("cli", () => {
   it("passes built-in self-test suite", () => {
@@ -15,6 +16,14 @@ describe("cli", () => {
   it("handles --help flag cleanly", async () => {
     const code = await main(["--help"]);
     expect(code).toBe(0);
+  });
+
+  it("--no-color disables ANSI output", async () => {
+    const before = isColorEnabled();
+    setColorEnabled(true);
+    expect(await main(["--no-color", "--version"])).toBe(0);
+    expect(isColorEnabled()).toBe(false);
+    setColorEnabled(before);
   });
 
   it("handles --version flag cleanly", async () => {

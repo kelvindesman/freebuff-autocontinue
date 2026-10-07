@@ -20,6 +20,7 @@ import {
   formatPacificTime,
   getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
+import { box, cyan, dim, yellow } from "./render.js";
 import {
   attachSession,
   capture,
@@ -208,9 +209,11 @@ export async function watch(opts: WatcherOptions): Promise<number> {
       if (status.isWorking && now - lastPaneChange > stallTimeout * 1000) {
         const stallMinutes = Math.floor((now - lastPaneChange) / 60000);
         console.log(
-          `[autocontinue] WARNING: Freebuff has had no screen activity for ${stallMinutes}m! Active: ${
-            status.activeStep || "unknown"
-          }`
+          yellow(
+            `[autocontinue] WARNING: Freebuff has had no screen activity for ${stallMinutes}m! Active: ${
+              status.activeStep || "unknown"
+            }`
+          )
         );
         logSnapshot(logFile, name, "stall-warning");
         lastPaneChange = now;
@@ -240,7 +243,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           lastStatusSummary = dedupKey;
           lastHeartbeat = now;
           heartbeatCount++;
-          console.log(`[autocontinue] [heartbeat] ${summary}`);
+          console.log(`${dim("[autocontinue]")} ${cyan("[heartbeat]")} ${summary}`);
           logSnapshot(logFile, name, `heartbeat: ${summary}`);
 
           // Rotating community message every 4 heartbeats
@@ -301,13 +304,13 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         const qKey = `question:${fnv1a(qText)}`;
         if (acted[qKey] === undefined) {
           acted[qKey] = now;
-          console.log(`\n${"=".repeat(76)}`);
-          console.log("[autocontinue] [QUESTION] Freebuff is asking a question:");
-          console.log("-".repeat(76));
-          console.log(qText || "(question modal active in tmux session)");
-          console.log("-".repeat(76));
-          console.log(`Attach to tmux directly: tmux -L freebuff-auto attach -t ${name}`);
-          console.log("=".repeat(76));
+          console.log(
+            `\n${box("[autocontinue] [QUESTION] Freebuff is asking a question", [
+              ...(qText || "(question modal active in tmux session)").split("\n"),
+              "",
+              `Attach to tmux directly: tmux -L freebuff-auto attach -t ${name}`,
+            ])}`
+          );
           logSnapshot(logFile, name, `question-modal:\n${qText}`);
         }
 

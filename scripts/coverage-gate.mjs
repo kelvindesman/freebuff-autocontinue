@@ -38,6 +38,7 @@ const DEFAULT_SUITE = [
   "tests/model-picker.test.ts",
   "tests/pacific-time.test.ts",
   "tests/platform.test.ts",
+  "tests/render.test.ts",
   "tests/status.test.ts",
   "tests/status-extra.test.ts",
   "tests/telemetry.test.ts",
