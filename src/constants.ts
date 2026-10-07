@@ -77,6 +77,17 @@ export const QUESTION_PATTERNS = [
   /↑↓ navigate • Enter select/i,
 ];
 
+// End-of-turn "Suggested followups:" block (real freebuff 0.2.19 capture,
+// tests/fixtures/followups.txt). Items are "→ text" lines; the first item is
+// the recommended one. The TUI draws a scrollbar (█ ▄ ▀) at the right edge.
+export const FOLLOWUP_RE = /Suggested followups:/i;
+export const FOLLOWUP_PATTERNS = [FOLLOWUP_RE];
+export const FOLLOWUP_ITEM_RE = /^\s*→\s*(.+?)[\s█▄▀▌▐]*$/;
+export const SCROLLBAR_ONLY_RE = /^[\s█▄▀▌▐]*$/;
+// Echo of a user message ("[06:33 AM]"); a followup block older than the
+// newest one is stale scrollback.
+export const USER_MESSAGE_MARKER_RE = /^\s*\[\d{1,2}:\d{2}(?:\s*[AP]M)?\]\s*$/i;
+
 // Self-update notifications
 export const UPDATE_PATTERNS = [/Update available:.*→/i, /Download complete! Starting/i];
 

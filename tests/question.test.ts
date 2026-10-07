@@ -2,7 +2,12 @@ import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import { classify, parseQuestionModal } from "../src/classifier.js";
-import { formatQuestionBox, interpretKey, wrapText } from "../src/question.js";
+import {
+  formatFollowupsBox,
+  formatQuestionBox,
+  interpretKey,
+  wrapText,
+} from "../src/question.js";
 import { displayWidth, setColorEnabled } from "../src/render.js";
 
 const real = fs.readFileSync(
@@ -96,5 +101,20 @@ describe("interpretKey", () => {
       action: "interrupt",
     });
     expect(interpretKey("z", 4, 0)).toEqual({ action: "ignore" });
+  });
+});
+
+describe("formatFollowupsBox", () => {
+  it("lists followups, marks the first as recommended, and states the mode", () => {
+    setColorEnabled(false);
+    const on = formatFollowupsBox(["Add tests", "Write docs"], true);
+    expect(on).toContain("1. Add tests ★ recommended");
+    expect(on).toContain("2. Write docs");
+    expect(on).toContain("Sending the recommended followup.");
+    const off = formatFollowupsBox(["Add tests"], false);
+    expect(off).toContain("--no-auto-followup");
+    for (const row of on.split("\n")) {
+      expect(displayWidth(row)).toBe(79);
+    }
   });
 });

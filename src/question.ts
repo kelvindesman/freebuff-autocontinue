@@ -53,6 +53,20 @@ export function formatQuestionBox(modal: QuestionModal, timeoutSec = 0): string 
   return box("[autocontinue] [QUESTION] Freebuff is asking a question", lines);
 }
 
+/** Boxed followup suggestions; the first is the recommended one. */
+export function formatFollowupsBox(items: string[], autoAccept: boolean): string {
+  const lines = items.flatMap((item, i) =>
+    wrapText(`${i + 1}. ${item}${i === 0 ? "  ★ recommended" : ""}`, 71)
+  );
+  lines.push(
+    "",
+    autoAccept
+      ? "Sending the recommended followup."
+      : "Auto-accept off (--no-auto-followup): sending the normal continuation text."
+  );
+  return box("[autocontinue] Suggested followups", lines);
+}
+
 /**
  * Map one raw keypress to a choice. Digits pick that 1-based option,
  * Enter picks the recommended one, `a` attaches, Ctrl+C interrupts.

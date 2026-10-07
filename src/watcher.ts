@@ -5,6 +5,7 @@
 
 import {
   classify,
+  extractFollowups,
   extractStatus,
   isWorkingState,
   parseQuestionModal,
@@ -21,7 +22,7 @@ import {
   getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
 import { hostReapDeps, reapSession, trackSession, untrackSession } from "./proc-tree.js";
-import { formatQuestionBox } from "./question.js";
+import { formatFollowupsBox, formatQuestionBox } from "./question.js";
 import { cyan, dim, yellow } from "./render.js";
 import {
   attachSession,
@@ -64,6 +65,8 @@ export interface WatcherOptions {
   interactive?: boolean;
   /** Auto-submit the recommended option when the agent opens a question modal. */
   autoAnswer?: boolean;
+  /** Send the recommended followup when the turn ends with suggestions (default true). */
+  autoFollowup?: boolean;
   /** Seconds to wait for a human choice before auto-selecting (0 = instant). */
   questionTimeout?: number;
 }
@@ -93,6 +96,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
     humanize = null,
     interactive = false,
     autoAnswer = true,
+    autoFollowup = true,
     questionTimeout = 30,
   } = opts;
 
@@ -501,8 +505,9 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         }
       }
 
-      // Handle idle turn completion
-      if (action === "idle") {
+      // Handle idle turn completion (a followup block is an idle turn whose
+      // continuation text is the recommended suggestion).
+      if (action === "idle" || action === "followup") {
         if (!initialSent) continue;
         if (status.isWorking) {
           idleSince = null;
@@ -518,10 +523,28 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         if (sends >= maxContinues) continue;
         if (now - lastSend < cooldown * 1000) continue;
 
+        let body = text;
+        if (action === "followup") {
+          const followups = extractFollowups(pane);
+          const fKey = `followup:${fnv1a(followups.items.join("|"))}`;
+          if (acted[fKey] === undefined) {
+            acted[fKey] = now;
+            console.log(`\n${formatFollowupsBox(followups.items, autoFollowup)}\n`);
+            logSnapshot(logFile, name, `followups:\n${followups.items.join("\n")}`);
+          }
+          if (autoFollowup) {
+            body = detail;
+          }
+        }
+
         console.log(
-          `[autocontinue ${sends + 1}/${maxContinues}] agent is idle (turn completed) — sending continuation text…`
+          `[autocontinue ${sends + 1}/${maxContinues}] agent is idle (turn completed) — sending ${
+            action === "followup" && autoFollowup
+              ? `recommended followup: ${body.slice(0, 60)}`
+              : "continuation text"
+          }…`
         );
-        const ok = await sendAndVerify(name, text, enterKey, settle, undefined, humanize);
+        const ok = await sendAndVerify(name, body, enterKey, settle, undefined, humanize);
         if (!ok) continue;
 
         sends++;

@@ -50,6 +50,7 @@ const SAMPLE_TRANSCRIPT = [
     "Choose another model with /model or visit https://freebuff.com/plans.",
   "Out of credits. Please add credits at https://codebuff.com/usage",
   "▍Add to the current task (/ for commands)",
+  "Suggested followups:\n→ Add tests\n→ Write docs\n▍Add to the current task (/ for commands)",
 ];
 
 export function runDryRun(sampleLines: string[], text: string): void {
@@ -58,6 +59,8 @@ export function runDryRun(sampleLines: string[], text: string): void {
     const { action, detail } = classify(line);
     if (action === "continue" || action === "first-prompt" || action === "idle") {
       console.log(`SEND text+Enter (${action}): ${text.slice(0, 60)}...`);
+    } else if (action === "followup") {
+      console.log(`SEND recommended followup: ${detail}`);
     } else if (action === "fallback-accept") {
       console.log(`SEND Enter (accept fallback): ${detail}`);
     } else if (action === "paywall") {
@@ -197,6 +200,20 @@ export function selfTest(): number {
     ).length === 2
   );
 
+  const fu = classify(
+    "[06:33 AM]\nSuggested followups:\n→ Add tests\n→ Write docs\n▍Add to the current task (/ for commands)"
+  );
+  check(
+    "followups -> followup (first is recommended)",
+    fu.action === "followup" && fu.detail === "Add tests"
+  );
+  check(
+    "acted-on followups are stale",
+    classify(
+      "Suggested followups:\n→ Add tests\n[06:40 AM]\nAdd tests\n▍Add to the current task (/ for commands)"
+    ).action === "idle"
+  );
+
   check("login gate -> login", classify("Press ENTER to login...").action === "login");
   check(
     "update notice -> update",
@@ -264,6 +281,8 @@ OPTIONS:
   --no-color                 Disable ANSI colors (also honors the NO_COLOR env var)
   --auto-answer             Auto-submit the recommended option when the agent asks a question [default: true]
   --no-auto-answer          Never auto-answer questions; wait for a human to attach
+  --auto-followup           Send the recommended "Suggested followups:" item when a turn ends [default: true]
+  --no-auto-followup        Render followups only; keep sending the normal continuation text
   --question-timeout <sec>  Seconds to wait for a human choice before auto-selecting [default: 30] (0 = instant)
   --attach                   Attach to the existing tmux session directly
   --telemetry-opt-in         Opt in to anonymous usage + crash reports (default: OFF)
@@ -332,6 +351,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     "no-humanize": { type: "boolean" as const, default: false },
     "auto-answer": { type: "boolean" as const, default: true },
     "no-auto-answer": { type: "boolean" as const, default: false },
+    "auto-followup": { type: "boolean" as const, default: true },
+    "no-auto-followup": { type: "boolean" as const, default: false },
     "question-timeout": { type: "string" as const, default: "30" },
     "telemetry-opt-in": { type: "boolean" as const, default: false },
     "telemetry-opt-out": { type: "boolean" as const, default: false },
@@ -510,6 +531,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     isResumed: sessionExists,
     interactive: Boolean(values.interactive),
     autoAnswer: values["auto-answer"] !== false && !values["no-auto-answer"],
+    autoFollowup: values["auto-followup"] !== false && !values["no-auto-followup"],
     questionTimeout: parseInt(values["question-timeout"] || "30", 10),
   });
   /* coverage-waiver-end */
