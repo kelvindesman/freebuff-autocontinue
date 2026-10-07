@@ -6,6 +6,7 @@ export * from "./classifier.js";
 export * from "./cli.js";
 export * from "./community.js";
 export * from "./constants.js";
+export * from "./humanize.js";
 export * from "./login.js";
 export * from "./model-picker.js";
 export * from "./pacific-time.js";

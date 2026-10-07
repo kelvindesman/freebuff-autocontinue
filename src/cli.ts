@@ -14,6 +14,7 @@ import {
   stripAnsi,
 } from "./classifier.js";
 import { CONTINUE_ID_RE, DEFAULT_MODEL, DEFAULT_TEXT } from "./constants.js";
+import { resolveHumanize } from "./humanize.js";
 import { runInteractiveWizard } from "./interactive.js";
 import { pickCheapest } from "./model-picker.js";
 import {
@@ -254,6 +255,12 @@ OPTIONS:
                              and live descendant processes, then exit
   --allow-risky              Also consider TEST/peak-window rows in /model fallback
   --no-banner                Silence rotating community / support reminders
+  --typing <mode>            Free-text typing: "human" (word chunks, jitter) | "instant" [default: human]
+  --no-humanize              Same as --typing instant
+  --typing-wpm <num>         Humanized typing speed in words per minute [default: 140]
+  --min-delay <ms>           Minimum delay between humanized chunks [default: 40]
+  --max-delay <ms>           Maximum delay between humanized chunks [default: 900]
+  --typos                    Simulate occasional typos fixed with Backspace [default: off]
   --no-color                 Disable ANSI colors (also honors the NO_COLOR env var)
   --auto-answer             Auto-submit the recommended option when the agent asks a question [default: true]
   --no-auto-answer          Never auto-answer questions; wait for a human to attach
@@ -317,6 +324,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     "allow-risky": { type: "boolean" as const, default: false },
     "no-banner": { type: "boolean" as const, default: false },
     "no-color": { type: "boolean" as const, default: false },
+    typing: { type: "string" as const, default: "human" },
+    "typing-wpm": { type: "string" as const },
+    "min-delay": { type: "string" as const },
+    "max-delay": { type: "string" as const },
+    typos: { type: "boolean" as const, default: false },
+    "no-humanize": { type: "boolean" as const, default: false },
     "auto-answer": { type: "boolean" as const, default: true },
     "no-auto-answer": { type: "boolean" as const, default: false },
     "question-timeout": { type: "string" as const, default: "30" },
@@ -486,6 +499,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     killOnExit: Boolean(values["kill-on-exit"]),
     reap: !values["no-reap"],
     noBanner: Boolean(values["no-banner"]),
+    humanize: resolveHumanize({
+      typing: values.typing,
+      wpm: values["typing-wpm"],
+      minDelay: values["min-delay"],
+      maxDelay: values["max-delay"],
+      typos: values.typos,
+      noHumanize: values["no-humanize"],
+    }),
     isResumed: sessionExists,
     interactive: Boolean(values.interactive),
     autoAnswer: values["auto-answer"] !== false && !values["no-auto-answer"],

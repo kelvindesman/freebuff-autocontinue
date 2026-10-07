@@ -34,6 +34,7 @@ const DEFAULT_SUITE = [
   "tests/classifier.test.ts",
   "tests/cli.test.ts",
   "tests/community.test.ts",
+  "tests/humanize.test.ts",
   "tests/login.test.ts",
   "tests/model-picker.test.ts",
   "tests/pacific-time.test.ts",

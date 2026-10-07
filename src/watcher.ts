@@ -12,6 +12,7 @@ import {
 } from "./classifier.js";
 import { formatCommunityBanner, getNextCommunityMessage } from "./community.js";
 import { BALANCE_RE, COMPOSER_RE, CONTINUE_ID_RE } from "./constants.js";
+import type { HumanizeOptions } from "./humanize.js";
 import { promptMidRunAccountSwitch, promptUserChoice } from "./interactive.js";
 import { extractLoginUrl, formatLoginBanner, openBrowser } from "./login.js";
 import { findModel, parseModelRows, pickBestFallback } from "./model-picker.js";
@@ -57,6 +58,8 @@ export interface WatcherOptions {
   /** Reap the pane's process tree and tmux session on exit (default true). */
   reap?: boolean;
   noBanner: boolean;
+  /** Humanized typing for free text; null/undefined = instant. */
+  humanize?: HumanizeOptions | null;
   isResumed?: boolean;
   interactive?: boolean;
   /** Auto-submit the recommended option when the agent opens a question modal. */
@@ -87,6 +90,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
     killOnExit,
     reap = true,
     noBanner,
+    humanize = null,
     interactive = false,
     autoAnswer = true,
     questionTimeout = 30,
@@ -403,7 +407,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         if (!COMPOSER_RE.test(pane)) continue;
 
         console.log(`[autocontinue] composer visible, typing ${text.length} chars…`);
-        const ok = await sendAndVerify(name, text, enterKey, settle);
+        const ok = await sendAndVerify(name, text, enterKey, settle, undefined, humanize);
         if (!ok) continue;
         initialSent = true;
         lastSend = now;
@@ -521,7 +525,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         console.log(
           `[autocontinue ${sends + 1}/${maxContinues}] agent is idle (turn completed) — sending continuation text…`
         );
-        const ok = await sendAndVerify(name, text, enterKey, settle);
+        const ok = await sendAndVerify(name, text, enterKey, settle, undefined, humanize);
         if (!ok) continue;
 
         sends++;
@@ -550,7 +554,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           );
         }
 
-        const ok = await sendAndVerify(name, body, enterKey, settle);
+        const ok = await sendAndVerify(name, body, enterKey, settle, undefined, humanize);
         if (!ok) continue;
 
         sends++;
