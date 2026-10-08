@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-08
+
 ### Added
 - **Followup acceptance**: the real `Suggested followups:` block is parsed
   (newest block only) and the recommended first item is sent when the turn
