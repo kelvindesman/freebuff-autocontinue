@@ -7,6 +7,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { isWorkingState, stripAnsi } from "./classifier.js";
 import { TMUX_SOCKET } from "./constants.js";
+import { type HumanizeOptions, typeHumanized } from "./humanize.js";
 
 export function tmux(args: string[]): {
   stdout: string;
@@ -147,6 +148,18 @@ export function sendText(name: string, body: string): boolean {
   return r.code === 0;
 }
 
+export function sendTextHumanized(
+  name: string,
+  body: string,
+  opts: HumanizeOptions
+): Promise<boolean> {
+  return typeHumanized(body, opts, {
+    sendText: (chunk) => sendText(name, chunk),
+    sendKey: (key) => sendEnter(name, key),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  });
+}
+
 export function sendEnter(name: string, enterKey = "Enter"): boolean {
   return tmux(["send-keys", "-t", name, enterKey]).code === 0;
 }
@@ -156,10 +169,16 @@ export async function sendAndVerify(
   body: string,
   enterKey = "Enter",
   settle = 2.0,
-  verifyDelay = 2.5
+  verifyDelay = 2.5,
+  humanize: HumanizeOptions | null = null
 ): Promise<boolean> {
-  if (body && !sendText(name, body)) {
-    return false;
+  if (body) {
+    const typed = humanize
+      ? await sendTextHumanized(name, body, humanize)
+      : sendText(name, body);
+    if (!typed) {
+      return false;
+    }
   }
   await new Promise((resolve) => setTimeout(resolve, settle * 1000));
   sendEnter(name, enterKey);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { extractStatus } from "../src/classifier.js";
+import { extractStatus, parseElapsedSeconds } from "../src/classifier.js";
 
 describe("extractStatus", () => {
   it("extracts working state and elapsed duration", () => {
@@ -32,5 +32,25 @@ describe("extractStatus", () => {
     const pane2 = "working... 5s ■ Esc\n$ git push origin main";
     const status2 = extractStatus(pane2);
     expect(status2.activeStep).toBe("$ git push origin main");
+  });
+});
+
+describe("elapsedSeconds", () => {
+  it("parses h/m/s elapsed counters into seconds", () => {
+    expect(parseElapsedSeconds("12m 30s")).toBe(750);
+    expect(parseElapsedSeconds("1h 2m 3s")).toBe(3723);
+    expect(parseElapsedSeconds("45s")).toBe(45);
+    expect(parseElapsedSeconds("1d")).toBe(86400);
+  });
+
+  it("returns null when there is no elapsed counter", () => {
+    expect(parseElapsedSeconds("")).toBeNull();
+    expect(parseElapsedSeconds("soon")).toBeNull();
+  });
+
+  it("is exposed on extractStatus", () => {
+    expect(extractStatus("working... 12m 30s ■ Esc").elapsedSeconds).toBe(750);
+    expect(extractStatus("working...").elapsedSeconds).toBeNull();
+    expect(extractStatus("idle").elapsedSeconds).toBeNull();
   });
 });

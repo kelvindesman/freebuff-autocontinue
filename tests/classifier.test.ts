@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { classify, isIdleReady, isWorkingState } from "../src/classifier.js";
+import fs from "node:fs";
+import path from "node:path";
+import {
+  classify,
+  extractFollowups,
+  isIdleReady,
+  isWorkingState,
+} from "../src/classifier.js";
 
 describe("classify state machine", () => {
   it("detects first prompt landing messages", () => {
@@ -148,5 +155,78 @@ describe("classify state machine", () => {
 
   it("never blocks on an empty Freebucks pool", () => {
     expect(classify("0/105 Freebucks remaining").action).toBe(null);
+  });
+});
+
+describe("followups (real freebuff capture)", () => {
+  const real = fs.readFileSync(path.resolve(__dirname, "fixtures/followups.txt"), "utf8");
+  const composer = "▍Add to the current task (/ for commands)";
+
+  it("extracts items in order, stripping markers and scrollbar glyphs", () => {
+    expect(extractFollowups(real)).toEqual({
+      items: ["Add tests", "Write docs", "Refactor"],
+      recommended: "Add tests",
+    });
+  });
+
+  it("classifies the captured pane as a followup with the first item as detail", () => {
+    expect(classify(real)).toEqual({ action: "followup", detail: "Add tests" });
+  });
+
+  it("returns nothing without a header or without items", () => {
+    expect(extractFollowups("no followups here")).toEqual({
+      items: [],
+      recommended: null,
+    });
+    expect(extractFollowups(`Suggested followups:\nnot an item\n${composer}`)).toEqual({
+      items: [],
+      recommended: null,
+    });
+    expect(classify(`Suggested followups:\n${composer}`).action).toBe("idle");
+  });
+
+  it("uses the newest block and tolerates blank/scrollbar-only lines", () => {
+    const text = [
+      "Suggested followups:",
+      "→ old one",
+      "[10:00 AM]",
+      "old one",
+      "Suggested followups:",
+      "",
+      "→ new one            █",
+      "   ▄",
+      "→ new two",
+      composer,
+    ].join("\n");
+    expect(extractFollowups(text)).toEqual({
+      items: ["new one", "new two"],
+      recommended: "new one",
+    });
+  });
+
+  it("ignores a block already answered by a newer user message", () => {
+    const text = `Suggested followups:\n→ Add tests\n[06:40 AM]\nAdd tests\n${composer}`;
+    expect(extractFollowups(text).recommended).toBeNull();
+    expect(classify(text).action).toBe("idle");
+  });
+
+  it("accepts 24h user-message markers", () => {
+    const text = `Suggested followups:\n→ Go\n[18:05]\nGo\n${composer}`;
+    expect(extractFollowups(text).recommended).toBeNull();
+  });
+
+  it("never acts on followups while a turn is working", () => {
+    expect(classify(`${real}\nworking... 4s ■ Esc`).action).toBeNull();
+  });
+
+  it("waits for the composer before acting", () => {
+    expect(classify("Suggested followups:\n→ Add tests").action).toBeNull();
+  });
+
+  it("lets stops and questions win over followups", () => {
+    expect(classify(`${real}\nThis account is suspended.`).action).toBe("stop:banned");
+    expect(
+      classify(`${real}\n╭── Some questions for you ──╮\n│ ○ A │\n╰──╯`).action
+    ).toBe("question");
   });
 });

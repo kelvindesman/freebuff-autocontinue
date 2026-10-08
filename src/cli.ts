@@ -14,6 +14,7 @@ import {
   stripAnsi,
 } from "./classifier.js";
 import { CONTINUE_ID_RE, DEFAULT_MODEL, DEFAULT_TEXT } from "./constants.js";
+import { resolveHumanize } from "./humanize.js";
 import { runInteractiveWizard } from "./interactive.js";
 import { pickCheapest } from "./model-picker.js";
 import {
@@ -22,6 +23,8 @@ import {
   getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
 import { checkPlatform } from "./platform.js";
+import { collectSessionProcs, formatStatusReport, reapTracked } from "./proc-tree.js";
+import { setColorEnabled } from "./render.js";
 import {
   isTelemetryEnabled,
   setTelemetryConsent,
@@ -47,6 +50,7 @@ const SAMPLE_TRANSCRIPT = [
     "Choose another model with /model or visit https://freebuff.com/plans.",
   "Out of credits. Please add credits at https://codebuff.com/usage",
   "▍Add to the current task (/ for commands)",
+  "Suggested followups:\n→ Add tests\n→ Write docs\n▍Add to the current task (/ for commands)",
 ];
 
 export function runDryRun(sampleLines: string[], text: string): void {
@@ -55,6 +59,8 @@ export function runDryRun(sampleLines: string[], text: string): void {
     const { action, detail } = classify(line);
     if (action === "continue" || action === "first-prompt" || action === "idle") {
       console.log(`SEND text+Enter (${action}): ${text.slice(0, 60)}...`);
+    } else if (action === "followup") {
+      console.log(`SEND recommended followup: ${detail}`);
     } else if (action === "fallback-accept") {
       console.log(`SEND Enter (accept fallback): ${detail}`);
     } else if (action === "paywall") {
@@ -194,6 +200,20 @@ export function selfTest(): number {
     ).length === 2
   );
 
+  const fu = classify(
+    "[06:33 AM]\nSuggested followups:\n→ Add tests\n→ Write docs\n▍Add to the current task (/ for commands)"
+  );
+  check(
+    "followups -> followup (first is recommended)",
+    fu.action === "followup" && fu.detail === "Add tests"
+  );
+  check(
+    "acted-on followups are stale",
+    classify(
+      "Suggested followups:\n→ Add tests\n[06:40 AM]\nAdd tests\n▍Add to the current task (/ for commands)"
+    ).action === "idle"
+  );
+
   check("login gate -> login", classify("Press ENTER to login...").action === "login");
   check(
     "update notice -> update",
@@ -239,17 +259,32 @@ OPTIONS:
   --poll <sec>               Seconds between screen polls [default: 3]
   --heartbeat <sec>          Seconds between live progress heartbeat updates [default: 15]
   --idle-settle <sec>        Seconds composer must remain idle before auto-continuing [default: 6.0]
-  --stall-timeout <sec>      Seconds without screen changes while working before stall warning [default: 900]
+  --stall-timeout <sec>      Seconds the screen and elapsed timer may stay frozen while working [default: 900]
+  --stall-action <action>    On a frozen turn: "interrupt" (Esc, then resend; --continue relaunch after
+                             --max-restarts failed recoveries) | "warn" (log only) [default: interrupt]
   --settle <sec>             Seconds between typing text and pressing Enter [default: 2.0]
   --enter-key <key>          tmux key name sent as Enter [default: Enter]
   --log-file <path>          Path to append screen snapshots [default: freebuff-autocontinue.log]
   --resume                   Attach watcher to existing session if found [default: true]
   --no-resume                Disallow attaching to existing session
-  --kill-on-exit             Kill tmux session on exit [default: leave running]
+  --kill-on-exit             Kill tmux session on exit (implied by default reaping)
+  --no-reap                  Leave the tmux session and its processes running on exit
+                             [default: reap pane process tree on exit/SIGINT/crash]
+  --status, --ps             List sessions on the freebuff-auto socket with pane pid
+                             and live descendant processes, then exit
   --allow-risky              Also consider TEST/peak-window rows in /model fallback
   --no-banner                Silence rotating community / support reminders
+  --typing <mode>            Free-text typing: "human" (word chunks, jitter) | "instant" [default: human]
+  --no-humanize              Same as --typing instant
+  --typing-wpm <num>         Humanized typing speed in words per minute [default: 140]
+  --min-delay <ms>           Minimum delay between humanized chunks [default: 40]
+  --max-delay <ms>           Maximum delay between humanized chunks [default: 900]
+  --typos                    Simulate occasional typos fixed with Backspace [default: off]
+  --no-color                 Disable ANSI colors (also honors the NO_COLOR env var)
   --auto-answer             Auto-submit the recommended option when the agent asks a question [default: true]
   --no-auto-answer          Never auto-answer questions; wait for a human to attach
+  --auto-followup           Send the recommended "Suggested followups:" item when a turn ends [default: true]
+  --no-auto-followup        Render followups only; keep sending the normal continuation text
   --question-timeout <sec>  Seconds to wait for a human choice before auto-selecting [default: 30] (0 = instant)
   --attach                   Attach to the existing tmux session directly
   --telemetry-opt-in         Opt in to anonymous usage + crash reports (default: OFF)
@@ -298,16 +333,29 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     heartbeat: { type: "string" as const, default: "15" },
     "idle-settle": { type: "string" as const, default: "6.0" },
     "stall-timeout": { type: "string" as const, default: "900" },
+    "stall-action": { type: "string" as const, default: "interrupt" },
     settle: { type: "string" as const, default: "2.0" },
     "enter-key": { type: "string" as const, default: "Enter" },
     "log-file": { type: "string" as const, default: "freebuff-autocontinue.log" },
     resume: { type: "boolean" as const, default: true },
     "no-resume": { type: "boolean" as const, default: false },
     "kill-on-exit": { type: "boolean" as const, default: false },
+    "no-reap": { type: "boolean" as const, default: false },
+    status: { type: "boolean" as const, default: false },
+    ps: { type: "boolean" as const, default: false },
     "allow-risky": { type: "boolean" as const, default: false },
     "no-banner": { type: "boolean" as const, default: false },
+    "no-color": { type: "boolean" as const, default: false },
+    typing: { type: "string" as const, default: "human" },
+    "typing-wpm": { type: "string" as const },
+    "min-delay": { type: "string" as const },
+    "max-delay": { type: "string" as const },
+    typos: { type: "boolean" as const, default: false },
+    "no-humanize": { type: "boolean" as const, default: false },
     "auto-answer": { type: "boolean" as const, default: true },
     "no-auto-answer": { type: "boolean" as const, default: false },
+    "auto-followup": { type: "boolean" as const, default: true },
+    "no-auto-followup": { type: "boolean" as const, default: false },
     "question-timeout": { type: "string" as const, default: "30" },
     "telemetry-opt-in": { type: "boolean" as const, default: false },
     "telemetry-opt-out": { type: "boolean" as const, default: false },
@@ -326,6 +374,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   });
 
   const values = parsed.values;
+
+  if (values["no-color"]) {
+    setColorEnabled(false);
+  }
 
   if (values.help) {
     printHelp();
@@ -396,6 +448,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 3;
   }
 
+  if (values.status || values.ps) {
+    console.log(formatStatusReport(collectSessionProcs()));
+    return 0;
+  }
+
   const sessionName = values.session || "fb-auto";
 
   if (values.attach) {
@@ -459,15 +516,26 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     heartbeat: parseInt(values.heartbeat || "15", 10),
     idleSettle: parseFloat(values["idle-settle"] || "6.0"),
     stallTimeout: parseInt(values["stall-timeout"] || "900", 10),
+    stallAction: values["stall-action"] === "warn" ? "warn" : "interrupt",
     settle: parseFloat(values.settle || "2.0"),
     enterKey: values["enter-key"] || "Enter",
     logFile: values["log-file"] || "freebuff-autocontinue.log",
     allowRisky: Boolean(values["allow-risky"]),
     killOnExit: Boolean(values["kill-on-exit"]),
+    reap: !values["no-reap"],
     noBanner: Boolean(values["no-banner"]),
+    humanize: resolveHumanize({
+      typing: values.typing,
+      wpm: values["typing-wpm"],
+      minDelay: values["min-delay"],
+      maxDelay: values["max-delay"],
+      typos: values.typos,
+      noHumanize: values["no-humanize"],
+    }),
     isResumed: sessionExists,
     interactive: Boolean(values.interactive),
     autoAnswer: values["auto-answer"] !== false && !values["no-auto-answer"],
+    autoFollowup: values["auto-followup"] !== false && !values["no-auto-followup"],
     questionTimeout: parseInt(values["question-timeout"] || "30", 10),
   });
   /* coverage-waiver-end */
@@ -504,12 +572,12 @@ if (shouldAutoRun(entryArg, import.meta.url)) {
       `[autocontinue] unexpected error: ${err instanceof Error ? err.message : String(err)}`
     );
     console.error(
-      "[autocontinue] any tmux session is still running; reattach with --attach"
+      "[autocontinue] reaping supervised tmux session(s); pass --no-reap to keep them"
     );
     console.error(
       "[autocontinue] opt in to anonymous crash reports: freebuff-autocontinue --telemetry-opt-in"
     );
-    process.exit(1);
+    void reapTracked().finally(() => process.exit(1));
   });
 
   main().then((code) => {

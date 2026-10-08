@@ -5,21 +5,48 @@
 
 import {
   classify,
-  extractQuestion,
-  extractQuestionOptions,
+  extractFollowups,
   extractStatus,
   isWorkingState,
+  parseQuestionModal,
 } from "./classifier.js";
 import { formatCommunityBanner, getNextCommunityMessage } from "./community.js";
 import { BALANCE_RE, COMPOSER_RE, CONTINUE_ID_RE } from "./constants.js";
-import { promptMidRunAccountSwitch, promptUserChoice } from "./interactive.js";
+import type { HumanizeOptions } from "./humanize.js";
+import { promptMidRunAccountSwitch, promptQuestionChoice } from "./interactive.js";
 import { extractLoginUrl, formatLoginBanner, openBrowser } from "./login.js";
-import { findModel, parseModelRows, pickBestFallback } from "./model-picker.js";
+import {
+  findModel,
+  parseModelRows,
+  pickBestFallback,
+  planNavigation,
+} from "./model-picker.js";
 import {
   formatDuration,
   formatPacificTime,
   getSecondsUntilPacificMidnight,
 } from "./pacific-time.js";
+import { hostReapDeps, reapSession, trackSession, untrackSession } from "./proc-tree.js";
+import { formatFollowupsBox, formatQuestionBox } from "./question.js";
+import {
+  createLiveLine,
+  cyan,
+  defaultLiveLineIO,
+  dim,
+  green,
+  red,
+  yellow,
+} from "./render.js";
+import {
+  decideStall,
+  formatAge,
+  inactiveForMs,
+  isHealed,
+  markHandled,
+  type StallAction,
+  type StallState,
+  trackActivity,
+} from "./stall.js";
 import {
   attachSession,
   capture,
@@ -52,13 +79,21 @@ export interface WatcherOptions {
   logFile: string;
   allowRisky: boolean;
   killOnExit: boolean;
+  /** Reap the pane's process tree and tmux session on exit (default true). */
+  reap?: boolean;
   noBanner: boolean;
+  /** Humanized typing for free text; null/undefined = instant. */
+  humanize?: HumanizeOptions | null;
   isResumed?: boolean;
   interactive?: boolean;
   /** Auto-submit the recommended option when the agent opens a question modal. */
   autoAnswer?: boolean;
+  /** Send the recommended followup when the turn ends with suggestions (default true). */
+  autoFollowup?: boolean;
   /** Seconds to wait for a human choice before auto-selecting (0 = instant). */
   questionTimeout?: number;
+  /** On a frozen turn: "interrupt" = Esc + resend (default), "warn" = log only. */
+  stallAction?: StallAction;
 }
 
 export async function watch(opts: WatcherOptions): Promise<number> {
@@ -81,10 +116,14 @@ export async function watch(opts: WatcherOptions): Promise<number> {
     logFile,
     allowRisky,
     killOnExit,
+    reap = true,
     noBanner,
+    humanize = null,
     interactive = false,
     autoAnswer = true,
+    autoFollowup = true,
     questionTimeout = 30,
+    stallAction = "interrupt",
   } = opts;
 
   let sends = 0;
@@ -97,43 +136,62 @@ export async function watch(opts: WatcherOptions): Promise<number> {
   let idleSince: number | null = null;
   let lastHeartbeat = 0;
   let lastStatusSummary = "";
-  let lastPaneHash = 0;
-  let lastPaneChange = Date.now();
+  let stall: StallState = { hash: 0, elapsedSeconds: null, changedAt: Date.now() };
+  /** Consecutive failed Esc+resend recoveries (reset once a recovery heals). */
+  let stallStrikes = 0;
+  let recoveredAt = 0;
   let heartbeatCount = 0;
   let waitingForLogin = false;
   let loginUrlOpened = false;
   /** Per-key dedup timestamps (question panes, one-shot notices). */
   const acted: Record<string, number> = {};
 
-  console.log(`[autocontinue] tmux server: freebuff-auto | session: ${name}`);
-  console.log(`[autocontinue] screen snapshots append to: ${logFile}`);
-  console.log(`[autocontinue] preferred model: ${preferredModel}`);
-  console.log(`[autocontinue] on credit exhausted: ${onExhaust}`);
+  const live = createLiveLine(defaultLiveLineIO);
+  const say = (message: string): void => {
+    live.clear();
+    console.log(message);
+  };
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
 
-  function stop(code: number, why: string): number {
-    console.log(`[autocontinue] STOP ${why}`);
+  say(`[autocontinue] tmux server: freebuff-auto | session: ${name}`);
+  say(`[autocontinue] screen snapshots append to: ${logFile}`);
+  say(`[autocontinue] preferred model: ${preferredModel}`);
+  say(`[autocontinue] on credit exhausted: ${onExhaust}`);
+
+  async function stop(code: number, why: string): Promise<number> {
+    live.clear();
+    say(`[autocontinue] STOP ${why}`);
     logSnapshot(logFile, name, `stop:${why}`);
-    if (killOnExit) {
+    if (reap) {
+      const result = await reapSession(name, hostReapDeps);
+      untrackSession(name);
+      say(
+        `[autocontinue] reaped ${result.pids.length} process(es) (${result.killed} needed SIGKILL)`
+      );
+      if (continueId) {
+        say(`resume this chat later: freebuff --continue ${continueId}`);
+      }
+    } else if (killOnExit) {
       killSession(name);
     } else {
-      console.log("session left running — reattach with:");
-      console.log(`  npx freebuff-autocontinue --attach`);
-      console.log(`  (or tmux -L freebuff-auto attach -t ${name})`);
+      say("session left running — reattach with:");
+      say(`  npx freebuff-autocontinue --attach`);
+      say(`  (or tmux -L freebuff-auto attach -t ${name})`);
     }
     return code;
   }
 
-  // Handle Ctrl+C cleanly
+  // Handle Ctrl+C cleanly: reap the tree (second Ctrl+C forces exit).
   let isStopping = false;
   const sigintHandler = () => {
-    if (isStopping) return;
+    if (isStopping) process.exit(130);
     isStopping = true;
-    console.log("\n[autocontinue] stopped by user (session left running).");
-    console.log(`reattach: npx freebuff-autocontinue --attach`);
-    console.log(`kill it:  tmux -L freebuff-auto kill-session -t ${name}`);
-    process.exit(130);
+    say("\n[autocontinue] stopped by user.");
+    void stop(130, "sigint").then((code) => process.exit(code));
   };
   process.on("SIGINT", sigintHandler);
+  if (reap) trackSession(name);
 
   if (!opts.isResumed) {
     if (!spawnSession(name, cmd, cwd)) {
@@ -151,7 +209,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
       const stateDesc = isWorkingState(pane)
         ? "turn in progress"
         : "idle (waiting for continuation)";
-      console.log(`[autocontinue] attached to active session (${stateDesc})`);
+      say(`[autocontinue] attached to active session (${stateDesc})`);
     }
   }
 
@@ -161,25 +219,21 @@ export async function watch(opts: WatcherOptions): Promise<number> {
       const now = Date.now();
 
       if (!hasSession(name)) {
-        console.log("[autocontinue] session exited.");
+        say("[autocontinue] session exited.");
         if (restarts < maxRestarts) {
           restarts++;
           const extra = continueId ? ["--continue", continueId] : ["--continue"];
-          console.log(`[autocontinue] relaunching (${restarts}/${maxRestarts}) ...`);
+          say(`[autocontinue] relaunching (${restarts}/${maxRestarts}) ...`);
           if (!spawnSession(name, cmd, cwd, extra)) {
-            return stop(3, "relaunch-failed");
+            return await stop(3, "relaunch-failed");
           }
           continue;
         }
-        return stop(0, "retries-exhausted");
+        return await stop(0, "retries-exhausted");
       }
 
       const pane = capture(name);
       const currentHash = fnv1a(pane);
-      if (currentHash !== lastPaneHash) {
-        lastPaneHash = currentHash;
-        lastPaneChange = now;
-      }
 
       const cidMatch = pane.match(CONTINUE_ID_RE);
       if (cidMatch) {
@@ -190,11 +244,9 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         const bm = pane.match(BALANCE_RE);
         if (bm) {
           balanceReported = true;
-          console.log(
-            `[autocontinue] Freebucks meter: ${bm[0]} (daily pool; wallet pays next)`
-          );
+          say(`[autocontinue] Freebucks meter: ${bm[0]} (daily pool; wallet pays next)`);
           if (bm[1].replace(/,/g, "") === "0") {
-            console.log(
+            say(
               "[autocontinue] daily pool empty — trying anyway, wallet covers priced models"
             );
           }
@@ -204,16 +256,67 @@ export async function watch(opts: WatcherOptions): Promise<number> {
       // Extract live status & progress
       const status = extractStatus(pane);
 
-      // Check stall watchdog
-      if (status.isWorking && now - lastPaneChange > stallTimeout * 1000) {
-        const stallMinutes = Math.floor((now - lastPaneChange) / 60000);
-        console.log(
-          `[autocontinue] WARNING: Freebuff has had no screen activity for ${stallMinutes}m! Active: ${
-            status.activeStep || "unknown"
-          }`
+      // Stall watchdog: frozen = neither the pane nor its elapsed counter moved.
+      stall = trackActivity(stall, currentHash, status.elapsedSeconds, now);
+      if (stallStrikes > 0 && isHealed(stall, recoveredAt)) {
+        stallStrikes = 0;
+        say(green("[autocontinue] stall recovery healed — turn is progressing again"));
+      }
+      const quietMs = inactiveForMs(stall, now);
+      const decision = decideStall(stall, now, status.isWorking, stallStrikes, {
+        timeoutMs: stallTimeout * 1000,
+        action: stallAction,
+        maxStrikes: maxRestarts,
+      });
+
+      if (decision === "warn") {
+        say(
+          yellow(
+            `[autocontinue] WARNING: Freebuff has had no screen activity for ${formatAge(quietMs)}! Active: ${
+              status.activeStep || "unknown"
+            }`
+          )
         );
         logSnapshot(logFile, name, "stall-warning");
-        lastPaneChange = now;
+        stall = markHandled(stall, now);
+      } else if (decision === "recover") {
+        stallStrikes++;
+        say(
+          yellow(
+            `[autocontinue] frozen for ${formatAge(quietMs)} — Esc + resend (attempt ${stallStrikes}/${maxRestarts})`
+          )
+        );
+        logSnapshot(logFile, name, "stall-recover");
+        sendEnter(name, "Escape");
+        await sleep(settle * 1000);
+        for (let i = 0; i < 10 && isWorkingState(capture(name)); i++) {
+          await sleep(1000);
+        }
+        await sendAndVerify(name, text, enterKey, settle, undefined, humanize);
+        recoveredAt = Date.now();
+        lastSend = recoveredAt;
+        idleSince = null;
+        stall = markHandled(stall, recoveredAt);
+        continue;
+      } else if (decision === "escalate") {
+        say(
+          red(
+            `[autocontinue] ${stallStrikes} recoveries failed (frozen ${formatAge(quietMs)}) — relaunching with --continue`
+          )
+        );
+        logSnapshot(logFile, name, "stall-escalate");
+        if (restarts >= maxRestarts) {
+          return await stop(2, "stalled");
+        }
+        restarts++;
+        await reapSession(name, hostReapDeps);
+        const extra = continueId ? ["--continue", continueId] : ["--continue"];
+        if (!spawnSession(name, cmd, cwd, extra)) {
+          return await stop(3, "relaunch-failed");
+        }
+        stallStrikes = 0;
+        stall = markHandled(stall, Date.now());
+        continue;
       }
 
       // Heartbeat logging
@@ -232,6 +335,8 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           parts.push(`(${status.model})`);
         }
         const summary = parts.join(" · ");
+        const quiet = quietMs >= 10_000 ? `no change ${formatAge(quietMs)}` : "";
+        const meter = status.balance?.raw ?? "";
 
         // Dedup on step+model only: elapsed changes every poll, so comparing
         // the whole summary would re-log a heartbeat on every single cycle.
@@ -240,14 +345,33 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           lastStatusSummary = dedupKey;
           lastHeartbeat = now;
           heartbeatCount++;
-          console.log(`[autocontinue] [heartbeat] ${summary}`);
+          say(
+            `${dim("[autocontinue]")} ${cyan("[heartbeat]")} ${[summary, quiet, meter]
+              .filter(Boolean)
+              .join(" · ")}`
+          );
           logSnapshot(logFile, name, `heartbeat: ${summary}`);
 
           // Rotating community message every 4 heartbeats
           if (!noBanner && heartbeatCount % 4 === 0) {
-            console.log(formatCommunityBanner(getNextCommunityMessage()));
+            say(formatCommunityBanner(getNextCommunityMessage()));
           }
         }
+      }
+
+      if (status.isWorking) {
+        live.set(
+          [
+            status.elapsed ? `working [${status.elapsed}]` : "working...",
+            status.activeStep,
+            `last change ${formatAge(quietMs)} ago`,
+            status.balance?.raw,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        );
+      } else {
+        live.clear();
       }
 
       const classified = classify(pane);
@@ -255,7 +379,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
 
       // Handle self-updates
       if (action === "update") {
-        console.log(
+        say(
           "[autocontinue] Freebuff self-update detected; maintaining session across restart..."
         );
         continue;
@@ -266,7 +390,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         if (!waitingForLogin) {
           waitingForLogin = true;
           loginUrlOpened = false;
-          console.log("[autocontinue] Login gate detected.");
+          say("[autocontinue] Login gate detected.");
           // Send enter to trigger login URL generation if prompted
           sendEnter(name, enterKey);
         }
@@ -274,17 +398,17 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         const loginUrl = extractLoginUrl(pane);
         if (loginUrl && !loginUrlOpened) {
           loginUrlOpened = true;
-          console.log(`\n${formatLoginBanner(loginUrl)}\n`);
+          say(`\n${formatLoginBanner(loginUrl)}\n`);
           openBrowser(loginUrl);
         } else if (!loginUrl && !loginUrlOpened) {
-          console.log(formatLoginBanner(null));
+          say(formatLoginBanner(null));
         }
 
         // Check if login completed (composer appeared)
         if (COMPOSER_RE.test(pane)) {
           waitingForLogin = false;
           loginUrlOpened = false;
-          console.log("[autocontinue] Login complete! Resuming supervision...");
+          say("[autocontinue] Login complete! Resuming supervision...");
         } else {
           continue; // Keep waiting for user to finish login
         }
@@ -292,54 +416,50 @@ export async function watch(opts: WatcherOptions): Promise<number> {
 
       // Handle hard stops
       if (action?.startsWith("stop:")) {
-        return stop(2, action);
+        return await stop(2, action);
       }
 
       // Handle interactive question modal (agent calls ask_question mid-turn)
       if (action === "question") {
-        const qText = extractQuestion(pane);
-        const qKey = `question:${fnv1a(qText)}`;
+        const modal = parseQuestionModal(pane);
+        const qKey = `question:${fnv1a(modal.question + modal.options.join("|"))}`;
         if (acted[qKey] === undefined) {
           acted[qKey] = now;
-          console.log(`\n${"=".repeat(76)}`);
-          console.log("[autocontinue] [QUESTION] Freebuff is asking a question:");
-          console.log("-".repeat(76));
-          console.log(qText || "(question modal active in tmux session)");
-          console.log("-".repeat(76));
-          console.log(`Attach to tmux directly: tmux -L freebuff-auto attach -t ${name}`);
-          console.log("=".repeat(76));
-          logSnapshot(logFile, name, `question-modal:\n${qText}`);
+          say(
+            `\n${formatQuestionBox(modal, autoAnswer ? questionTimeout : 0)}\n` +
+              `Attach to tmux directly: tmux -L freebuff-auto attach -t ${name}`
+          );
+          logSnapshot(logFile, name, `question-modal:\n${modal.question}`);
         }
 
         if (!autoAnswer) {
           const lastNotice = acted["question-notified"] ?? 0;
           if (lastNotice + 30_000 < now) {
             acted["question-notified"] = now;
-            console.log(
+            say(
               `[autocontinue] waiting for human input (attach: tmux -L freebuff-auto attach -t ${name})…`
             );
           }
           continue;
         }
 
-        const choice = await promptUserChoice(questionTimeout);
+        const choice = await promptQuestionChoice(modal, questionTimeout);
 
-        if (choice.toLowerCase() === "a") {
-          console.log(`\n[autocontinue] Attaching to tmux session ${name}...`);
+        if (choice.action === "attach") {
+          say(`\n[autocontinue] Attaching to tmux session ${name}...`);
           attachSession(name);
           continue;
         }
 
-        const parsed = Number.parseInt(choice, 10);
-        const optionCount = extractQuestionOptions(pane).length || 5;
-        const optNum = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+        const optNum = choice.action === "pick" ? choice.index : modal.recommended + 1;
+        const optionCount = modal.options.length || 5;
         const target = Math.min(optNum, optionCount);
         for (let i = 0; i < target - 1; i++) {
           sendEnter(name, "Down");
           await new Promise((r) => setTimeout(r, 300));
         }
 
-        console.log(`[autocontinue] Submitting option ${target} (of ${optionCount})…`);
+        say(`[autocontinue] Submitting option ${target} (of ${optionCount})…`);
         sendEnter(name, enterKey); // toggle/select option
         await new Promise((r) => setTimeout(r, 400));
         // Navigate from the selected option down to Submit, then confirm.
@@ -367,11 +487,9 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           dismissed = classify(capture(name)).action !== "question";
         }
         if (dismissed) {
-          console.log(
-            `[autocontinue] Option ${target} submitted successfully, modal dismissed`
-          );
+          say(`[autocontinue] Option ${target} submitted successfully, modal dismissed`);
         } else {
-          console.log(
+          say(
             `[autocontinue] Warning: modal may still be open after submitting option ${target}`
           );
         }
@@ -387,12 +505,12 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         if (initialSent) continue;
         if (!COMPOSER_RE.test(pane)) continue;
 
-        console.log(`[autocontinue] composer visible, typing ${text.length} chars…`);
-        const ok = await sendAndVerify(name, text, enterKey, settle);
+        say(`[autocontinue] composer visible, typing ${text.length} chars…`);
+        const ok = await sendAndVerify(name, text, enterKey, settle, undefined, humanize);
         if (!ok) continue;
         initialSent = true;
         lastSend = now;
-        console.log("[autocontinue] sent initial task text");
+        say("[autocontinue] sent initial task text");
         logSnapshot(logFile, name, "initial-send");
         continue;
       }
@@ -400,7 +518,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
       // Handle paywalls & credit exhaustion
       if (action === "paywall") {
         if (pickerOpened) continue;
-        console.log("[autocontinue] paywall detected — evaluating model fallback...");
+        say("[autocontinue] paywall detected — evaluating model fallback...");
 
         // Try opening /model to inspect candidates
         sendText(name, "/model");
@@ -421,11 +539,30 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           matched &&
           (matched.isZeroCost || matched.price <= (status.balance?.total ?? 0))
         ) {
-          console.log(
+          say(
             `[autocontinue] selecting fallback model: ${matched.name} (${matched.price} Freebucks/hr)`
           );
-          sendText(name, matched.name);
-          await new Promise((r) => setTimeout(r, 1000));
+          if (candidates.some((c) => c.isCursor)) {
+            // Real picker: walk the cursor (›) onto the target card, re-reading
+            // the screen each hop because the list scrolls.
+            for (let hop = 0; hop < 30; hop++) {
+              const plan = planNavigation(
+                parseModelRows(capture(name).split("\n")),
+                matched.name
+              );
+              if (plan.kind === "at") break;
+              const key = plan.kind === "move" ? plan.key : "Down";
+              const count = plan.kind === "move" ? plan.count : 1;
+              for (let i = 0; i < count; i++) {
+                sendEnter(name, key);
+                await new Promise((r) => setTimeout(r, 150));
+              }
+              await new Promise((r) => setTimeout(r, 300));
+            }
+          } else {
+            sendText(name, matched.name);
+            await new Promise((r) => setTimeout(r, 1000));
+          }
           sendEnter(name, enterKey);
           pickerOpened = true;
           logSnapshot(logFile, name, `model-selected:${matched.name}`);
@@ -433,19 +570,19 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         }
 
         // No model affordable with remaining Freebucks
-        console.log(
+        say(
           "[autocontinue] no affordable model available with current Freebucks balance."
         );
 
         let policy = onExhaust;
         if (interactive) {
           const choice = await promptMidRunAccountSwitch();
-          if (choice === "stop") return stop(0, "user-exit-credit-exhausted");
+          if (choice === "stop") return await stop(0, "user-exit-credit-exhausted");
           policy = choice === "switch" ? "switch" : "wait";
         }
 
         if (policy === "switch") {
-          console.log("[autocontinue] switching accounts: initiating re-login...");
+          say("[autocontinue] switching accounts: initiating re-login...");
           sendText(name, "/logout");
           await new Promise((r) => setTimeout(r, 1000));
           sendEnter(name, enterKey);
@@ -455,7 +592,7 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         } else if (policy === "wait") {
           const waitSecs = getSecondsUntilPacificMidnight();
           const targetTime = formatPacificTime(new Date(now + waitSecs * 1000));
-          console.log(
+          say(
             `[autocontinue] Freebucks exhausted. Waiting until Pacific Midnight (${targetTime}, in ${formatDuration(
               waitSecs
             )}) for daily refill...`
@@ -469,25 +606,26 @@ export async function watch(opts: WatcherOptions): Promise<number> {
             await new Promise((r) => setTimeout(r, step * 1000));
             remaining -= step;
             if (remaining > 0) {
-              console.log(
+              say(
                 `[autocontinue] [refill-wait] ${formatDuration(
                   remaining
                 )} remaining until Pacific Midnight refill...`
               );
             }
           }
-          console.log(
+          say(
             "[autocontinue] Pacific Midnight reached! Refill should be active. Resuming session..."
           );
           pickerOpened = false;
           continue;
         } else {
-          return stop(0, "credit-exhausted");
+          return await stop(0, "credit-exhausted");
         }
       }
 
-      // Handle idle turn completion
-      if (action === "idle") {
+      // Handle idle turn completion (a followup block is an idle turn whose
+      // continuation text is the recommended suggestion).
+      if (action === "idle" || action === "followup") {
         if (!initialSent) continue;
         if (status.isWorking) {
           idleSince = null;
@@ -503,19 +641,35 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         if (sends >= maxContinues) continue;
         if (now - lastSend < cooldown * 1000) continue;
 
-        console.log(
-          `[autocontinue ${sends + 1}/${maxContinues}] agent is idle (turn completed) — sending continuation text…`
+        let body = text;
+        if (action === "followup") {
+          const followups = extractFollowups(pane);
+          const fKey = `followup:${fnv1a(followups.items.join("|"))}`;
+          if (acted[fKey] === undefined) {
+            acted[fKey] = now;
+            say(`\n${formatFollowupsBox(followups.items, autoFollowup)}\n`);
+            logSnapshot(logFile, name, `followups:\n${followups.items.join("\n")}`);
+          }
+          if (autoFollowup) {
+            body = detail;
+          }
+        }
+
+        say(
+          `[autocontinue ${sends + 1}/${maxContinues}] agent is idle (turn completed) — sending ${
+            action === "followup" && autoFollowup
+              ? `recommended followup: ${body.slice(0, 60)}`
+              : "continuation text"
+          }…`
         );
-        const ok = await sendAndVerify(name, text, enterKey, settle);
+        const ok = await sendAndVerify(name, body, enterKey, settle, undefined, humanize);
         if (!ok) continue;
 
         sends++;
         lastSend = now;
         idleSince = null;
         pickerOpened = false;
-        console.log(
-          `[autocontinue ${sends}/${maxContinues}] continuation sent successfully`
-        );
+        say(`[autocontinue ${sends}/${maxContinues}] continuation sent successfully`);
         logSnapshot(logFile, name, "turn-continue");
         continue;
       }
@@ -528,28 +682,26 @@ export async function watch(opts: WatcherOptions): Promise<number> {
         let body = text;
         if (action === "fallback-accept") {
           body = "";
-          console.log("[autocontinue] accepting server fallback model (Enter)…");
+          say("[autocontinue] accepting server fallback model (Enter)…");
         } else {
-          console.log(
-            "[autocontinue] session ended gate — sending new session continuation…"
-          );
+          say("[autocontinue] session ended gate — sending new session continuation…");
         }
 
-        const ok = await sendAndVerify(name, body, enterKey, settle);
+        const ok = await sendAndVerify(name, body, enterKey, settle, undefined, humanize);
         if (!ok) continue;
 
         sends++;
         lastSend = now;
         pickerOpened = false;
         idleSince = null;
-        console.log(`[autocontinue ${sends}/${maxContinues}] sent (${action} ${detail})`);
+        say(`[autocontinue ${sends}/${maxContinues}] sent (${action} ${detail})`);
         logSnapshot(logFile, name, `send-${action}`);
       }
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[autocontinue] error in watch loop: ${msg}`);
-    return stop(1, `error:${msg}`);
+    return await stop(1, `error:${msg}`);
   } finally {
     process.removeListener("SIGINT", sigintHandler);
   }

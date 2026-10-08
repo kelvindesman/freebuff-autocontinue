@@ -5,23 +5,31 @@
 import {
   ANSI_RE,
   BALANCE_RE,
+  COMPOSER_RE,
   CONTINUE_PATTERNS,
   FALLBACK_ACCEPT_PATTERNS,
   FIRST_PROMPT_PATTERNS,
+  FOLLOWUP_ITEM_RE,
+  FOLLOWUP_PATTERNS,
+  FOLLOWUP_RE,
   FRESH_COMPOSER_RE,
   IDLE_COMPOSER_RE,
   LOGIN_PATTERNS,
   PAYWALL_PATTERNS,
   QUESTION_PATTERNS,
+  SCROLLBAR_ONLY_RE,
   STOP_PATTERNS,
   TURN_EVIDENCE_RE,
   UPDATE_PATTERNS,
+  USER_MESSAGE_MARKER_RE,
   WORKING_RE,
 } from "./constants.js";
 
 export interface StatusInfo {
   isWorking: boolean;
   elapsed: string;
+  /** `elapsed` in seconds ("1h 2m 3s" -> 3723), or null when absent. */
+  elapsedSeconds: number | null;
   activeStep: string;
   model: string;
   balance?: { used: number; total: number; raw: string };
@@ -36,6 +44,7 @@ export interface ClassificationResult {
     | "paywall"
     | "login"
     | "question"
+    | "followup"
     | "update"
     | `stop:${string}`
     | null;
@@ -123,6 +132,74 @@ export function extractQuestion(text: string): string {
     }
   }
   return boxLines.join("\n").trim();
+}
+
+export interface QuestionModal {
+  question: string;
+  options: string[];
+  /** 0-based index of the recommended option (marked, else the first). */
+  recommended: number;
+}
+
+/** Question text, options and recommended option from a question-modal pane. */
+export function parseQuestionModal(text: string): QuestionModal {
+  const options = extractQuestionOptions(text);
+  const question = extractQuestion(text)
+    .split("\n")
+    .filter((line) => line && !QUESTION_OPTION_RE.test(line))
+    .map((line) => line.replace(/^[▼▶▲►▸]\s*/, ""))
+    .join("\n");
+  const marked = options.findIndex((o) => /recommended/i.test(o));
+  return { question, options, recommended: Math.max(0, marked) };
+}
+
+export interface FollowupInfo {
+  items: string[];
+  /** The recommended followup (the first one), or null when there is none. */
+  recommended: string | null;
+}
+
+/**
+ * Items of the newest "Suggested followups:" block. A block followed by a
+ * newer user-message marker was already acted on (stale scrollback) and
+ * yields nothing.
+ */
+export function extractFollowups(text: string): FollowupInfo {
+  const lines = stripAnsi(text).split("\n");
+  const header = lines.map((line) => FOLLOWUP_RE.test(line)).lastIndexOf(true);
+  const none: FollowupInfo = { items: [], recommended: null };
+  if (header < 0) {
+    return none;
+  }
+  const items: string[] = [];
+  let i = header + 1;
+  while (
+    i < lines.length &&
+    (FOLLOWUP_ITEM_RE.test(lines[i]) || SCROLLBAR_ONLY_RE.test(lines[i]))
+  ) {
+    const item = lines[i].match(FOLLOWUP_ITEM_RE);
+    if (item) {
+      items.push(item[1]);
+    }
+    i++;
+  }
+  if (lines.slice(i).some((line) => USER_MESSAGE_MARKER_RE.test(line))) {
+    return none;
+  }
+  return { items, recommended: items[0] ?? null };
+}
+
+const ELAPSED_UNIT_SECONDS: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 };
+
+/** Parse an elapsed string like "12m 30s" into seconds (null if none). */
+export function parseElapsedSeconds(elapsed: string): number | null {
+  let total = 0;
+  let found = false;
+  for (const m of elapsed.matchAll(/(\d+)\s*([dhms])/gi)) {
+    total += Number(m[1]) * ELAPSED_UNIT_SECONDS[m[2].toLowerCase()];
+    found = true;
+  }
+  return found ? total : null;
 }
 
 export function extractStatus(pane: string): StatusInfo {
@@ -214,7 +291,14 @@ export function extractStatus(pane: string): StatusInfo {
     }
   }
 
-  return { isWorking, elapsed, activeStep, model, balance };
+  return {
+    isWorking,
+    elapsed,
+    elapsedSeconds: parseElapsedSeconds(elapsed),
+    activeStep,
+    model,
+    balance,
+  };
 }
 
 export function classify(text: string): ClassificationResult {
@@ -277,6 +361,15 @@ export function classify(text: string): ClassificationResult {
   for (const rx of UPDATE_PATTERNS) {
     if (rx.test(clean)) {
       return { action: "update", detail: rx.source.slice(0, 40) };
+    }
+  }
+
+  // End-of-turn followup suggestions with the composer ready: the first
+  // (recommended) item is the detail the watcher sends.
+  if (FOLLOWUP_PATTERNS.some((rx) => rx.test(clean)) && COMPOSER_RE.test(clean)) {
+    const { recommended } = extractFollowups(clean);
+    if (recommended) {
+      return { action: "followup", detail: recommended };
     }
   }
 

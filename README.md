@@ -72,10 +72,17 @@ flowchart TD
     Monitor -- "Session Ended Gate" --> ResumeGate["Send Continuation Prompt"]
     Monitor -- "Paywall / Limit Reached" --> FallbackEval["Evaluate /model Hierarchy"]
     Monitor -- "Login Gate" --> LoginAuth["Auto-Launch Browser / Show ASCII URL"]
+    Monitor -- "Suggested followups" --> Followup["Send Recommended Followup\n(--no-auto-followup = render only)"]
+    Monitor -- "Question Modal" --> Question["Render Question + Countdown\nAuto-Pick Recommended"]
+    Monitor -- "Frozen Turn" --> Recover["Esc + Resend Continuation\nEscalate to --continue Relaunch"]
     Monitor -- "Self-Update" --> UpdateHold["Hold Supervision Across Restart"]
     Monitor -- "Hard Stop (Ban / Cap)" --> CleanStop["Exit Gracefully with Reason"]
+    CleanStop --> Reap["Reap pane process tree\n(--no-reap to keep running)"]
+    TurnDone --> Humanize["Humanized Typing\nWord Chunks + Jitter"]
+    Followup --> Humanize
+    FirstPrompt --> Humanize
 
-    FallbackEval -- "0-Cost / Affordable Model" --> SwitchModel["Select Model in /model"]
+    FallbackEval -- "Unmetered / 0-Cost / Affordable Model" --> SwitchModel["Walk /model Cursor to Card"]
     FallbackEval -- "No Model Affordable" --> ExhaustAction{"--on-exhaust Policy"}
 
     ExhaustAction -- "wait (default)" --> SleepRefill["Sleep Until Pacific Midnight (00:00 PT)\nCountdown Heartbeat & Auto-Resume"]
@@ -146,21 +153,73 @@ freebuff-autocontinue --attach
 *(Detach anytime with `Ctrl+B, d` without interrupting the supervisor).*
 
 ### 8. Question Handling (`--auto-answer`)
-When the agent pauses mid-turn to ask a question, the supervisor prints the
-question, then submits the recommended option:
+When the agent pauses mid-turn to ask a question, the supervisor renders the
+question with numbered options (the recommended one is starred) and a live
+countdown, then submits the recommended option:
 ```text
-============================================================================
-[autocontinue] [QUESTION] Freebuff is asking a question:
-----------------------------------------------------------------------------
-Which ticket should I pick?
-----------------------------------------------------------------------------
-Attach to tmux directly: tmux -L freebuff-auto attach -t fb-auto
-============================================================================
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ [autocontinue] [QUESTION] Freebuff is asking a question                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Which color do you prefer?                                                  │
+│                                                                             │
+│ 1. Red ★ recommended                                                        │
+│ 2. Green                                                                    │
+│ 3. Blue                                                                     │
+│ 4. Custom                                                                   │
+│                                                                             │
+│ Auto-picks the recommended option after 30s.                                │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
-- Press `1`-`9` then Enter to pick an option, or `a` to attach and answer yourself.
+- Press `1`-`9` to pick an option instantly, Enter for the recommended one, or `a` to attach and answer yourself.
 - No input within `--question-timeout` seconds → the recommended option is submitted.
 - `--no-auto-answer` never answers; it waits for a human (with a nudge every 30s).
 - `--question-timeout 0` answers immediately without waiting.
+
+### 9. Followup Acceptance (`--auto-followup`)
+When a turn ends with a `Suggested followups:` block, the supervisor sends the
+**recommended (first) followup** instead of the generic continuation text. It
+counts toward `--max-continues`. A block you already acted on (older than the
+newest user message) is ignored. `--no-auto-followup` renders the suggestions
+and keeps sending the normal continuation text.
+
+### 10. Human-Like Typing (`--typing human`)
+Free text (initial task, continuation, followups) is typed in word-sized
+chunks with jittered delays and short pauses after punctuation, so a session
+looks driven by a person rather than a paste. Tune it with `--typing-wpm`,
+`--min-delay` and `--max-delay`; `--typos` adds occasional mistakes that are
+corrected with Backspace; `--typing instant` (or `--no-humanize`) restores
+instant paste. Commands such as `/model` are always sent instantly.
+
+### 11. Process Visibility & Reaping (`--status`, `--no-reap`)
+`--status` (alias `--ps`) lists sessions on the `freebuff-auto` socket with the
+pane pid and every live descendant process. On exit, Ctrl+C or a crash the
+supervisor now terminates the pane's whole process tree (SIGTERM, then SIGKILL)
+and drops the tmux session, so no orphan freebuff helpers linger. It prints
+the `freebuff --continue <id>` command to resume the chat. Pass `--no-reap` to
+leave the session running as before.
+
+### 12. Frozen-Turn Recovery (`--stall-action`)
+A turn counts as frozen when neither the screen nor its elapsed timer has
+changed for `--stall-timeout` seconds. The default `interrupt` action presses
+Esc, waits for the composer, and resends the continuation text. After
+`--max-restarts` failed recoveries it relaunches with `freebuff --continue`.
+`--stall-action warn` only logs a warning. The heartbeat (and a live status
+line on a TTY) shows elapsed time, time since the last screen change, and the
+Freebucks meter, so a "looks running but dead" state is never silent.
+
+### 13. Smarter Model Picker
+The `/model` catalog is parsed card by card (section, name, price, access tier,
+fast variant, unmetered, `1M context`, peak/off-peak prices). Fallback order:
+unmetered full-access model, then a 0-Freebucks model, then the cheapest within
+your balance, then the cheapest overall (DeepSeek wins ties among free rows).
+`--model cheapest` ranks unmetered above per-session metered models. Paid-plan
+and risky rows (`TEST`, stalled, prompt-retaining previews) are never picked
+unless `--allow-risky`. The supervisor walks the picker cursor to the chosen
+card rather than typing its name.
+
+### 14. Colors (`--no-color`)
+Output is colored on a TTY. Set `NO_COLOR=1` or pass `--no-color` to disable;
+piped/non-TTY output is always plain text.
 
 ---
 
@@ -198,17 +257,29 @@ For more details, see [SECURITY.md](./SECURITY.md).
 | `--poll <sec>` | `number` | `3` | Seconds between screen polls |
 | `--heartbeat <sec>` | `number` | `15` | Seconds between live progress heartbeat updates |
 | `--idle-settle <sec>` | `number` | `6.0` | Seconds composer must be idle before auto-continuing |
-| `--stall-timeout <sec>`| `number` | `900` (15m) | Seconds without screen changes before stall warning |
+| `--stall-timeout <sec>`| `number` | `900` (15m) | Seconds the screen and elapsed timer may stay frozen while working |
+| `--stall-action <action>` | `string` | `interrupt` | Frozen turn: `interrupt` (Esc + resend, then `--continue` relaunch) \| `warn` (log only) |
 | `--settle <sec>` | `number` | `2.0` | Seconds between typing text and pressing Enter |
 | `--enter-key <key>` | `string` | `Enter` | tmux key name sent as Enter |
 | `--log-file <path>` | `string` | `freebuff-autocontinue.log` | Path for timestamped screen snapshots |
 | `--resume` | `boolean` | `true` | Attach watcher to existing session if found |
 | `--no-resume` | `boolean` | `false` | Disallow attaching to existing session |
-| `--kill-on-exit` | `boolean` | `false` | Kill tmux session on exit (default leaves running) |
+| `--kill-on-exit` | `boolean` | `false` | Kill tmux session on exit (implied by default reaping) |
+| `--no-reap` | `boolean` | `false` | Leave the session and its processes running on exit/SIGINT/crash |
+| `--status`, `--ps` | `boolean` | `false` | List sessions with pane pid and live descendant processes, then exit |
 | `--allow-risky` | `boolean` | `false` | Consider TEST/peak-window tiers in model fallback |
 | `--no-banner` | `boolean` | `false` | Silence rotating community reminders |
+| `--no-color` | `boolean` | `false` | Disable ANSI colors (also honors `NO_COLOR`) |
+| `--typing <mode>` | `string` | `human` | Free-text typing: `human` (word chunks, jitter) \| `instant` |
+| `--no-humanize` | `boolean` | `false` | Same as `--typing instant` |
+| `--typing-wpm <n>` | `number` | `140` | Humanized typing speed in words per minute |
+| `--min-delay <ms>` | `number` | `40` | Minimum delay between humanized chunks |
+| `--max-delay <ms>` | `number` | `900` | Maximum delay between humanized chunks |
+| `--typos` | `boolean` | `false` | Simulate occasional typos fixed with Backspace |
 | `--auto-answer` | `boolean` | `true` | Auto-submit the recommended option when the agent asks a question |
 | `--no-auto-answer` | `boolean` | `false` | Never auto-answer questions; wait for a human to attach |
+| `--auto-followup` | `boolean` | `true` | Send the recommended `Suggested followups:` item when a turn ends |
+| `--no-auto-followup` | `boolean` | `false` | Render followups only; keep sending the normal continuation text |
 | `--question-timeout` | `sec` | `30` | Seconds to wait for a human choice before auto-selecting (`0` = instant) |
 | `--telemetry-opt-in` | `boolean` | `false` | Opt in to anonymous usage + crash reports |
 | `--telemetry-opt-out` | `boolean` | `false` | Opt out and clear stored consent |

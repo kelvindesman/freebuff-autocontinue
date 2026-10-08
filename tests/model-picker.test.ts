@@ -1,9 +1,12 @@
 import { describe, expect, it } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
 import {
   findModel,
   parseModelRows,
   pickBestFallback,
   pickCheapest,
+  planNavigation,
 } from "../src/model-picker.js";
 
 describe("model-picker", () => {
@@ -164,5 +167,185 @@ describe("model-picker", () => {
     expect(findModel(parsed, "cheapest", true)?.name).toContain("GLM");
     expect(pickBestFallback(parsed, 100, true)?.name).toContain("GLM");
     expect(pickCheapest(lines, true)).toContain("GLM");
+  });
+});
+
+describe("model-picker (real freebuff catalog)", () => {
+  const top = fs.readFileSync(
+    path.resolve(__dirname, "fixtures/model-picker-top.txt"),
+    "utf8"
+  );
+  const bottom = fs.readFileSync(
+    path.resolve(__dirname, "fixtures/model-picker-bottom.txt"),
+    "utf8"
+  );
+  const topRows = parseModelRows(top.split("\n"));
+
+  it("parses boxed cards with names, prices, sections and the cursor", () => {
+    expect(topRows.map((c) => c.name)).toEqual([
+      "Space Bunny Alpha",
+      "Solar Pro 4",
+      "Solar Mini 4",
+      "MiMo 2.6 Flash",
+      "GLM 5.3 Flash",
+      "DeepSeek V4.1 Flash",
+    ]);
+    expect(topRows.map((c) => c.price)).toEqual([0, 0, 5, 10, 15, 15]);
+    expect(topRows.map((c) => c.section)).toEqual([
+      "UNLIMITED",
+      "UNLIMITED",
+      "UNLIMITED",
+      "OPTIMIZED",
+      "OPTIMIZED",
+      "OPTIMIZED",
+    ]);
+    expect(topRows.find((c) => c.isCursor)?.name).toBe("MiMo 2.6 Flash");
+    expect(parseModelRows(bottom.split("\n")).find((c) => c.isCursor)?.name).toBe(
+      "Solar Mini 4"
+    );
+  });
+
+  it("flags unmetered sections, long context and risky data-retaining rows", () => {
+    const bunny = topRows[0];
+    expect(bunny.isUnmetered).toBe(true);
+    expect(bunny.longContext).toBe(true);
+    expect(bunny.isUnavailable).toBe(true); // TEST + anonymous provider retains prompts
+    expect(topRows[3].isUnmetered).toBe(false);
+    expect(topRows[3].tier).toBe("full");
+  });
+
+  it("picks the unmetered full-access model over priced ones", () => {
+    expect(pickBestFallback(topRows, 25)?.name).toBe("Solar Pro 4");
+  });
+
+  it("considers the risky 0-cost row only with allowRisky", () => {
+    expect(pickBestFallback(topRows, 25, true)?.name).toBe("Space Bunny Alpha");
+  });
+
+  it("--model cheapest prefers unmetered over a cheaper per-session price", () => {
+    const rows = parseModelRows([
+      "Cheap Metered  2 Freebucks/hr",
+      "Pricey Unmetered  9 Freebucks/hr  UNLIMITED",
+    ]);
+    expect(findModel(rows, "cheapest")?.name).toBe("Pricey Unmetered");
+    expect(findModel(topRows, "deepseek")?.name).toBe("DeepSeek V4.1 Flash");
+  });
+});
+
+describe("model-picker tokens", () => {
+  const parse = (line: string) => parseModelRows([line])[0];
+
+  it("classifies access tiers", () => {
+    expect(parse("A  5 Freebucks/hr  Full access").tier).toBe("full");
+    expect(parse("A  5 Freebucks/hr  Limited access").tier).toBe("limited");
+    expect(parse("A  5 Freebucks/hr  Limited access  Full access").tier).toBe("full");
+    expect(parse("A  Included with a paid plan").tier).toBe("paid");
+    expect(parse("A  Paid plans only").isLocked).toBe(true);
+  });
+
+  it("detects fast variants only as a variant, not as a descriptor", () => {
+    expect(parse("DeepSeek V4.1 Flash Fast  5 Freebucks/hr").isFast).toBe(true);
+    expect(parse("Model X  5 Freebucks/hr").isFast).toBe(false);
+    const card = parseModelRows([
+      "┌──────┐",
+      "│ Solar Mini · Fast · New │",
+      "│ 5 Freebucks/hr │",
+      "└──────┘",
+      "┌──────┐",
+      "│ Ling • high · Fast & free · Experimental │",
+      "│ 5 Freebucks/hr │",
+      "└──────┘",
+    ]);
+    expect(card.map((c) => c.isFast)).toEqual([true, false]);
+  });
+
+  it("parses 1M context, no-session and peak/off-peak prices", () => {
+    expect(parse("A  5 Freebucks/hr  1M context").longContext).toBe(true);
+    expect(parse("A  UNLIMITED  no session").noSession).toBe(true);
+    const peaky = parse("A  peak 20 Freebucks/hr  off-peak 8 Freebucks/hr");
+    expect(peaky.price).toBe(20);
+    expect(peaky.peakPrice).toBe(20);
+    expect(peaky.offPeakPrice).toBe(8);
+    expect(parse("A  5 Freebucks/hr").peakPrice).toBeUndefined();
+  });
+
+  it("uses off-peak price for ranking only when risky rows are allowed", () => {
+    const rows = parseModelRows([
+      "Peaky  peak 20 Freebucks/hr  off-peak 4 Freebucks/hr",
+      "Steady  9 Freebucks/hr",
+    ]);
+    expect(pickBestFallback(rows, 100)?.name).toBe("Steady");
+    expect(pickBestFallback(rows, 100, true)?.name).toBe("Peaky");
+  });
+
+  it("breaks price ties toward non-fast variants and longer context", () => {
+    const tie = parseModelRows([
+      "Alpha Fast  5 Freebucks/hr",
+      "Beta  5 Freebucks/hr",
+      "Gamma  5 Freebucks/hr  1M context",
+    ]);
+    expect(pickBestFallback(tie, 100)?.name).toBe("Gamma");
+    expect(pickBestFallback(tie.slice(0, 2), 100)?.name).toBe("Beta");
+  });
+
+  it("falls back to a limited-access unmetered row when no full-access one exists", () => {
+    const rows = parseModelRows([
+      "Metered  3 Freebucks/hr",
+      "Capped  UNLIMITED  Limited access",
+    ]);
+    expect(pickBestFallback(rows, 100)?.name).toBe("Capped");
+    const both = parseModelRows(["Capped  UNLIMITED  Limited access", "Open  UNLIMITED"]);
+    expect(pickBestFallback(both, 100)?.name).toBe("Open");
+  });
+
+  it("avoids paid-plan rows unless allowRisky", () => {
+    const rows = parseModelRows(["GPT-6 Luna  Paid plan  Included with a paid plan."]);
+    expect(pickBestFallback(rows, 100)).toBeNull();
+    expect(pickBestFallback(rows, 100, true)?.name).toBe("GPT-6 Luna");
+  });
+
+  it("skips footnote boxes and ad boxes that are not model cards", () => {
+    const rows = parseModelRows([
+      "┌──────┐",
+      "│ When it's busy, DeepSeek answers instead. │",
+      "│ Included with a paid plan. │",
+      "└──────┘",
+    ]);
+    expect(rows).toEqual([]);
+  });
+});
+
+describe("planNavigation", () => {
+  const rows = parseModelRows([
+    "┌─┐",
+    "│ A · x │",
+    "│ 1 Freebucks/hr │",
+    "└─┘",
+    "┌─┐",
+    "│ › B · x │",
+    "│ 2 Freebucks/hr │",
+    "└─┘",
+    "┌─┐",
+    "│ C · x │",
+    "│ 3 Freebucks/hr │",
+    "└─┘",
+  ]);
+
+  it("plans moves relative to the cursor", () => {
+    expect(planNavigation(rows, "C")).toEqual({ kind: "move", key: "Down", count: 1 });
+    expect(planNavigation(rows, "A")).toEqual({ kind: "move", key: "Up", count: 1 });
+    expect(planNavigation(rows, "B")).toEqual({ kind: "at" });
+  });
+
+  it("reports unknown when the cursor or target is off screen", () => {
+    expect(planNavigation(rows, "Z")).toEqual({ kind: "unknown" });
+    expect(
+      planNavigation(
+        rows.map((r) => ({ ...r, isCursor: false })),
+        "A"
+      )
+    ).toEqual({
+      kind: "unknown",
+    });
   });
 });

@@ -8,6 +8,7 @@
 
 import { spawn } from "node:child_process";
 import { LOGIN_URL_RE } from "./constants.js";
+import { box } from "./render.js";
 
 export function extractLoginUrl(text: string): string | null {
   const match = text.match(LOGIN_URL_RE);
@@ -48,31 +49,23 @@ export function formatLoginBanner(
     : "FREEBUFF LOGIN REQUIRED";
 
   const lines = [
-    "┌─────────────────────────────────────────────────────────────────────────────┐",
-    `│ ${title.padEnd(75)} │`,
-    "├─────────────────────────────────────────────────────────────────────────────┤",
-    "│ 1. Complete authentication in your browser (Google, GitHub, or Apple).     │",
-    "│ 2. Solve the Cloudflare Turnstile verification.                             │",
+    "1. Complete authentication in your browser (Google, GitHub, or Apple).",
+    "2. Solve the Cloudflare Turnstile verification.",
   ];
 
   if (url) {
-    // 69 keeps the rendered row the same width as the border: the 👉 glyph
-    // occupies two terminal columns.
     lines.push(
-      "│ 3. If your browser did not open automatically, visit this URL:              │",
-      `│    👉 ${url.slice(0, 69).padEnd(69)} │`
+      "3. If your browser did not open automatically, visit this URL:",
+      `   👉 ${url.slice(0, 66)}`
     );
   } else {
-    lines.push(
-      "│ 3. Opening authentication page in browser...                               │"
-    );
+    lines.push("3. Opening authentication page in browser...");
   }
 
   lines.push(
-    "│                                                                             │",
-    "│ ⏳ The watcher is paused waiting for login to complete, then auto-resumes! │",
-    "└─────────────────────────────────────────────────────────────────────────────┘"
+    "",
+    "⏳ The watcher is paused waiting for login to complete, then auto-resumes!"
   );
 
-  return lines.join("\n");
+  return box(title, lines);
 }

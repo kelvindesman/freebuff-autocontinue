@@ -77,6 +77,17 @@ export const QUESTION_PATTERNS = [
   /↑↓ navigate • Enter select/i,
 ];
 
+// End-of-turn "Suggested followups:" block (real freebuff 0.2.19 capture,
+// tests/fixtures/followups.txt). Items are "→ text" lines; the first item is
+// the recommended one. The TUI draws a scrollbar (█ ▄ ▀) at the right edge.
+export const FOLLOWUP_RE = /Suggested followups:/i;
+export const FOLLOWUP_PATTERNS = [FOLLOWUP_RE];
+export const FOLLOWUP_ITEM_RE = /^\s*→\s*(.+?)[\s█▄▀▌▐]*$/;
+export const SCROLLBAR_ONLY_RE = /^[\s█▄▀▌▐]*$/;
+// Echo of a user message ("[06:33 AM]"); a followup block older than the
+// newest one is stale scrollback.
+export const USER_MESSAGE_MARKER_RE = /^\s*\[\d{1,2}:\d{2}(?:\s*[AP]M)?\]\s*$/i;
+
 // Self-update notifications
 export const UPDATE_PATTERNS = [/Update available:.*→/i, /Download complete! Starting/i];
 
@@ -94,12 +105,24 @@ export const STOP_PATTERNS: Array<[RegExp, string]> = [
   [/Freebuff is temporarily busy/i, "rate-limited"],
 ];
 
-// Model picker rows & pricing regexes
+// Model picker rows & pricing regexes. The real picker (freebuff 0.2.19,
+// tests/fixtures/model-picker-*.txt) draws one boxed card per model under
+// uppercase section headings ("UNLIMITED · ...", "OPTIMIZED · ..."); the
+// name line carries descriptors and the next line carries the price.
 export const PRICE_RE = /(\d[\d,]*)\s+Freebucks\/hr/i;
 export const ZERO_COST_RE =
   /(?:\b0\s+Freebucks\/hr|\bUNLIMITED\b|\bunmetered\b|\bFREE\b)/i;
-export const LOCKED_RE = /Paid plan|Included with a paid plan/i;
-export const UNAVAILABLE_RE = /closed|unavailable|TEST\b|Price subject to change/i;
+export const LOCKED_RE = /Paid plans?|Included with a paid plan/i;
+export const UNAVAILABLE_RE =
+  /closed|unavailable|Stalled|TEST\b|Price subject to change|Preview model|retains prompts|retained for training/i;
+export const FULL_ACCESS_RE = /Full access/i;
+export const LIMITED_ACCESS_RE = /Limited access/i;
+export const LONG_CONTEXT_RE = /\b1M context\b/i;
+export const NO_SESSION_RE = /\bno[- ]session\b/i;
+export const OFF_PEAK_PRICE_RE = /off-?peak\D{0,20}?(\d[\d,]*)\s+Freebucks/i;
+export const PEAK_PRICE_RE = /\bpeak\D{0,20}?(\d[\d,]*)\s+Freebucks/i;
+export const MODEL_SECTION_RE = /^([A-Z][A-Z ]{2,}?)\s+·\s+/;
+export const UNMETERED_SECTION = "UNLIMITED";
 export const BALANCE_RE = /([\d,]+)\/([\d,]+)\s+Freebucks remaining/i;
 
 // Community nudges rotating during heartbeats
