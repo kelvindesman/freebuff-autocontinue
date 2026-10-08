@@ -1,0 +1,50 @@
+ ███ █████  ██████ ▄█████   ▄████▄  ██████▄  ██   ██ ████████████
+ ███ ███▀▀  ██▀   ███▄▄▄██ ██▄▄▄███ ██   ▀██ ██   ██   ██    ██
+ ███ ███    ███   ███▀▀▀▀▀ ██▀▀▀▀▀  ██▄  ▄██ ██▄  ██   ██    ██
+ ███ ██▀    ██▀    ▀█████   ▀████▀  ██████▀   ▀████▀   ██    ██
+
+ ┌──────────────────────────────────────────────────────────────────┐
+ │ Session active                                                   │
+ │ 15/25 Freebucks remaining                                        │
+ │ 5 day streak                                                     │
+ │                                                                  │
+ │ ✦ Refer friends → earn Freebucks:                                │                                                                                          █
+ │                                                                  │                                                                                          █
+ │ ⎘ Copy invite link  Learn More ↵                                 │                                                                                          █
+ └──────────────────────────────────────────────────────────────────┘                                                                                          █
+                                                                                                                                                               █
+ 30m left                                                                                                                                        ✕ End session
+ ↑↓ choose model · Tab reasoning · Enter select · Esc cancel
+                                                                          █
+ UNLIMITED · Experimental models with unlimited usage
+ ┌───────────────────────────────────────────────────────────────────────┐
+ │   Space Bunny Alpha • high · 1M context · Images · NEW · TEST         │
+ │          0 Freebucks/hr · Anonymous provider retains prompts          │
+ └───────────────────────────────────────────────────────────────────────┘
+ ┌───────────────────────────────────────────────────────────────────────┐
+ │   Solar Pro 4 · Promotional                                           │
+ │                     0 Freebucks/hr · Promotional                      │
+ └───────────────────────────────────────────────────────────────────────┘
+ ┌───────────────────────────────────────────────────────────────────────┐
+ │ › Solar Mini 4 · Fast and light · NEW                                 │
+ │                            5 Freebucks/hr                             │
+ └───────────────────────────────────────────────────────────────────────┘
+
+ OPTIMIZED · Strongest price-to-performance models
+ ┌───────────────────────────────────────────────────────────────────────┐
+ │   MiMo 2.6 Flash · Balanced · Images · NEW                            │
+ │                     10 Freebucks/hr · Recommended                     │
+ └───────────────────────────────────────────────────────────────────────┘
+ ┌───────────────────────────────────────────────────────────────────────┐
+ │   GLM 5.3 Flash • max · Deep reasoning · Images · NEW                 │
+ │                     15 Freebucks/hr · Promotional                     │
+ └───────────────────────────────────────────────────────────────────────┘
+ ┌───────────────────────────────────────────────────────────────────────┐
+ │   DeepSeek V4.1 Flash • high · Smart & Fast · Images · NEW            │
+ │            15 Freebucks/hr · May use data for AI training             │
+ │                         Get 7x usage for $5 →                         │
+ └───────────────────────────────────────────────────────────────────────┘
+
+ MiMo 2.6 Flash · <cwd> · /model to change ·
+ Chat: New chat
+ ← for history · ? for help

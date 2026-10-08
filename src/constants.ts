@@ -105,12 +105,24 @@ export const STOP_PATTERNS: Array<[RegExp, string]> = [
   [/Freebuff is temporarily busy/i, "rate-limited"],
 ];
 
-// Model picker rows & pricing regexes
+// Model picker rows & pricing regexes. The real picker (freebuff 0.2.19,
+// tests/fixtures/model-picker-*.txt) draws one boxed card per model under
+// uppercase section headings ("UNLIMITED · ...", "OPTIMIZED · ..."); the
+// name line carries descriptors and the next line carries the price.
 export const PRICE_RE = /(\d[\d,]*)\s+Freebucks\/hr/i;
 export const ZERO_COST_RE =
   /(?:\b0\s+Freebucks\/hr|\bUNLIMITED\b|\bunmetered\b|\bFREE\b)/i;
-export const LOCKED_RE = /Paid plan|Included with a paid plan/i;
-export const UNAVAILABLE_RE = /closed|unavailable|TEST\b|Price subject to change/i;
+export const LOCKED_RE = /Paid plans?|Included with a paid plan/i;
+export const UNAVAILABLE_RE =
+  /closed|unavailable|Stalled|TEST\b|Price subject to change|Preview model|retains prompts|retained for training/i;
+export const FULL_ACCESS_RE = /Full access/i;
+export const LIMITED_ACCESS_RE = /Limited access/i;
+export const LONG_CONTEXT_RE = /\b1M context\b/i;
+export const NO_SESSION_RE = /\bno[- ]session\b/i;
+export const OFF_PEAK_PRICE_RE = /off-?peak\D{0,20}?(\d[\d,]*)\s+Freebucks/i;
+export const PEAK_PRICE_RE = /\bpeak\D{0,20}?(\d[\d,]*)\s+Freebucks/i;
+export const MODEL_SECTION_RE = /^([A-Z][A-Z ]{2,}?)\s+·\s+/;
+export const UNMETERED_SECTION = "UNLIMITED";
 export const BALANCE_RE = /([\d,]+)\/([\d,]+)\s+Freebucks remaining/i;
 
 // Community nudges rotating during heartbeats

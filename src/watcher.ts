@@ -15,7 +15,12 @@ import { BALANCE_RE, COMPOSER_RE, CONTINUE_ID_RE } from "./constants.js";
 import type { HumanizeOptions } from "./humanize.js";
 import { promptMidRunAccountSwitch, promptQuestionChoice } from "./interactive.js";
 import { extractLoginUrl, formatLoginBanner, openBrowser } from "./login.js";
-import { findModel, parseModelRows, pickBestFallback } from "./model-picker.js";
+import {
+  findModel,
+  parseModelRows,
+  pickBestFallback,
+  planNavigation,
+} from "./model-picker.js";
 import {
   formatDuration,
   formatPacificTime,
@@ -443,8 +448,27 @@ export async function watch(opts: WatcherOptions): Promise<number> {
           console.log(
             `[autocontinue] selecting fallback model: ${matched.name} (${matched.price} Freebucks/hr)`
           );
-          sendText(name, matched.name);
-          await new Promise((r) => setTimeout(r, 1000));
+          if (candidates.some((c) => c.isCursor)) {
+            // Real picker: walk the cursor (›) onto the target card, re-reading
+            // the screen each hop because the list scrolls.
+            for (let hop = 0; hop < 30; hop++) {
+              const plan = planNavigation(
+                parseModelRows(capture(name).split("\n")),
+                matched.name
+              );
+              if (plan.kind === "at") break;
+              const key = plan.kind === "move" ? plan.key : "Down";
+              const count = plan.kind === "move" ? plan.count : 1;
+              for (let i = 0; i < count; i++) {
+                sendEnter(name, key);
+                await new Promise((r) => setTimeout(r, 150));
+              }
+              await new Promise((r) => setTimeout(r, 300));
+            }
+          } else {
+            sendText(name, matched.name);
+            await new Promise((r) => setTimeout(r, 1000));
+          }
           sendEnter(name, enterKey);
           pickerOpened = true;
           logSnapshot(logFile, name, `model-selected:${matched.name}`);
