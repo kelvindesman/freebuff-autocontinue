@@ -43,6 +43,7 @@ const DEFAULT_SUITE = [
   "tests/question.test.ts",
   "tests/render.test.ts",
   "tests/status.test.ts",
+  "tests/stall.test.ts",
   "tests/status-extra.test.ts",
   "tests/telemetry.test.ts",
 ];

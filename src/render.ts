@@ -68,8 +68,8 @@ export function displayWidth(text: string): number {
   return width;
 }
 
-/** Truncate plain text to `max` columns (no ANSI), then right-pad to `max`. */
-function fit(text: string, max: number): string {
+/** Truncate plain text (no ANSI) to at most `max` display columns. */
+export function truncate(text: string, max: number): string {
   let out = "";
   let width = 0;
   for (const ch of text) {
@@ -78,7 +78,12 @@ function fit(text: string, max: number): string {
     out += ch;
     width += w;
   }
-  return out + " ".repeat(max - width);
+  return out;
+}
+
+/** Truncate plain text to `max` columns, then right-pad to `max`. */
+function fit(text: string, max: number): string {
+  return truncate(text, max) + " ".repeat(max - displayWidth(truncate(text, max)));
 }
 
 export function hr(width = 76, ch = "─"): string {
@@ -163,3 +168,42 @@ export function countdown(
     },
   };
 }
+
+export interface LiveLineIO {
+  write: (chunk: string) => void;
+  isTTY: boolean;
+  columns: number;
+}
+
+export interface LiveLine {
+  set: (text: string) => void;
+  clear: () => void;
+}
+
+/**
+ * One in-place status line (TTY only). `set` rewrites it with `\r`; call
+ * `clear` before any other output so log lines never interleave with it.
+ */
+export function createLiveLine(io: LiveLineIO): LiveLine {
+  let active = false;
+  return {
+    set: (text) => {
+      if (!io.isTTY) return;
+      io.write(`\r\x1b[2K${truncate(text, Math.max(1, io.columns - 1))}`);
+      active = true;
+    },
+    clear: () => {
+      if (!active) return;
+      io.write("\r\x1b[2K");
+      active = false;
+    },
+  };
+}
+
+export const defaultLiveLineIO: LiveLineIO = {
+  write: (chunk) => {
+    process.stdout.write(chunk);
+  },
+  isTTY: Boolean(process.stdout.isTTY),
+  columns: process.stdout.columns ?? 80,
+};

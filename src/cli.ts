@@ -259,7 +259,9 @@ OPTIONS:
   --poll <sec>               Seconds between screen polls [default: 3]
   --heartbeat <sec>          Seconds between live progress heartbeat updates [default: 15]
   --idle-settle <sec>        Seconds composer must remain idle before auto-continuing [default: 6.0]
-  --stall-timeout <sec>      Seconds without screen changes while working before stall warning [default: 900]
+  --stall-timeout <sec>      Seconds the screen and elapsed timer may stay frozen while working [default: 900]
+  --stall-action <action>    On a frozen turn: "interrupt" (Esc, then resend; --continue relaunch after
+                             --max-restarts failed recoveries) | "warn" (log only) [default: interrupt]
   --settle <sec>             Seconds between typing text and pressing Enter [default: 2.0]
   --enter-key <key>          tmux key name sent as Enter [default: Enter]
   --log-file <path>          Path to append screen snapshots [default: freebuff-autocontinue.log]
@@ -331,6 +333,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     heartbeat: { type: "string" as const, default: "15" },
     "idle-settle": { type: "string" as const, default: "6.0" },
     "stall-timeout": { type: "string" as const, default: "900" },
+    "stall-action": { type: "string" as const, default: "interrupt" },
     settle: { type: "string" as const, default: "2.0" },
     "enter-key": { type: "string" as const, default: "Enter" },
     "log-file": { type: "string" as const, default: "freebuff-autocontinue.log" },
@@ -513,6 +516,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     heartbeat: parseInt(values.heartbeat || "15", 10),
     idleSettle: parseFloat(values["idle-settle"] || "6.0"),
     stallTimeout: parseInt(values["stall-timeout"] || "900", 10),
+    stallAction: values["stall-action"] === "warn" ? "warn" : "interrupt",
     settle: parseFloat(values.settle || "2.0"),
     enterKey: values["enter-key"] || "Enter",
     logFile: values["log-file"] || "freebuff-autocontinue.log",

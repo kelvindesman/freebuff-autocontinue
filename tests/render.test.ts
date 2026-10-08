@@ -4,8 +4,10 @@ import {
   box,
   color,
   countdown,
+  createLiveLine,
   cyan,
   defaultCountdownIO,
+  defaultLiveLineIO,
   dim,
   displayWidth,
   gray,
@@ -16,6 +18,7 @@ import {
   setColorEnabled,
   statusLine,
   supportsColor,
+  truncate,
   yellow,
 } from "../src/render.js";
 
@@ -165,5 +168,49 @@ describe("countdown", () => {
     expect(await countdown("x", 0).done).toBe(true);
     await defaultCountdownIO.sleep(1);
     expect(typeof defaultCountdownIO.isTTY).toBe("boolean");
+  });
+});
+
+describe("truncate / createLiveLine", () => {
+  it("truncates by display width without padding", () => {
+    expect(truncate("abcdef", 3)).toBe("abc");
+    expect(truncate("ab", 5)).toBe("ab");
+    expect(truncate("a👉b", 2)).toBe("a");
+  });
+
+  it("rewrites one line in place and clears it only when active", () => {
+    const writes: string[] = [];
+    const live = createLiveLine({
+      write: (c) => writes.push(c),
+      isTTY: true,
+      columns: 10,
+    });
+    live.clear();
+    expect(writes).toEqual([]);
+    live.set("0123456789abc");
+    expect(writes).toEqual([`\r${ESC}[2K012345678`]);
+    live.clear();
+    live.clear();
+    expect(writes).toEqual([`\r${ESC}[2K012345678`, `\r${ESC}[2K`]);
+  });
+
+  it("is silent on a non-TTY", () => {
+    const writes: string[] = [];
+    const live = createLiveLine({
+      write: (c) => writes.push(c),
+      isTTY: false,
+      columns: 80,
+    });
+    live.set("hello");
+    live.clear();
+    expect(writes).toEqual([]);
+  });
+
+  it("guards against absurd column counts and has real defaults", () => {
+    const writes: string[] = [];
+    createLiveLine({ write: (c) => writes.push(c), isTTY: true, columns: 0 }).set("xyz");
+    expect(writes[0]).toBe(`\r${ESC}[2Kx`);
+    expect(typeof defaultLiveLineIO.columns).toBe("number");
+    defaultLiveLineIO.write("");
   });
 });

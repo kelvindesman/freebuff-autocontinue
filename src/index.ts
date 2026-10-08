@@ -14,6 +14,7 @@ export * from "./platform.js";
 export * from "./proc-tree.js";
 export * from "./question.js";
 export * from "./render.js";
+export * from "./stall.js";
 export * from "./telemetry.js";
 export * from "./tmux.js";
 export * from "./watcher.js";

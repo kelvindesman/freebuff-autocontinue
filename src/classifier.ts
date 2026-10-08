@@ -28,6 +28,8 @@ import {
 export interface StatusInfo {
   isWorking: boolean;
   elapsed: string;
+  /** `elapsed` in seconds ("1h 2m 3s" -> 3723), or null when absent. */
+  elapsedSeconds: number | null;
   activeStep: string;
   model: string;
   balance?: { used: number; total: number; raw: string };
@@ -187,6 +189,19 @@ export function extractFollowups(text: string): FollowupInfo {
   return { items, recommended: items[0] ?? null };
 }
 
+const ELAPSED_UNIT_SECONDS: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 };
+
+/** Parse an elapsed string like "12m 30s" into seconds (null if none). */
+export function parseElapsedSeconds(elapsed: string): number | null {
+  let total = 0;
+  let found = false;
+  for (const m of elapsed.matchAll(/(\d+)\s*([dhms])/gi)) {
+    total += Number(m[1]) * ELAPSED_UNIT_SECONDS[m[2].toLowerCase()];
+    found = true;
+  }
+  return found ? total : null;
+}
+
 export function extractStatus(pane: string): StatusInfo {
   const text = stripAnsi(pane);
   const isWorking = isWorkingState(text);
@@ -276,7 +291,14 @@ export function extractStatus(pane: string): StatusInfo {
     }
   }
 
-  return { isWorking, elapsed, activeStep, model, balance };
+  return {
+    isWorking,
+    elapsed,
+    elapsedSeconds: parseElapsedSeconds(elapsed),
+    activeStep,
+    model,
+    balance,
+  };
 }
 
 export function classify(text: string): ClassificationResult {
