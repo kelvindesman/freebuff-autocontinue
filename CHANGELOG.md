@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Followup acceptance**: the real `Suggested followups:` block is parsed
+  (newest block only) and the recommended first item is sent when the turn
+  ends. `--no-auto-followup` renders only.
+- **Human-like typing**: free text is typed in word chunks with jittered delays,
+  punctuation pauses and optional Backspace-corrected typos (`--typing`,
+  `--no-humanize`, `--typing-wpm`, `--min-delay`, `--max-delay`, `--typos`).
+- **Process visibility and reaping**: `--status` / `--ps` list sessions with
+  pane pid and live descendants; exit, SIGINT and crash now reap the pane
+  process tree (`--no-reap` restores leave-running).
+- **Frozen-turn recovery**: a turn whose screen and elapsed timer stop changing
+  is recovered with Esc + resend, escalating to a `--continue` relaunch after
+  `--max-restarts` failures (`--stall-action warn|interrupt`). Heartbeats and a
+  TTY live status line show elapsed, last-change age and the Freebucks meter.
+- **Shared terminal renderer** with boxes, in-place countdown and colors gated on
+  TTY / `NO_COLOR` / `--no-color`.
+- **Question prompt**: the question and numbered options are rendered with a
+  recommended marker, a live countdown and single-key selection.
+- **Smarter model picker**: parses the real boxed `/model` catalog (access tier,
+  fast variant, unmetered, `1M context`, peak/off-peak) and ranks unmetered
+  full-access, then 0-Freebucks, then cheapest within balance. The supervisor
+  walks the picker cursor to the chosen card.
+
+### Changed
+- The supervisor now reaps the tmux session and its process tree on exit by
+  default, and prints `freebuff --continue <id>` to resume the chat.
+- Paid-plan rows are only considered with `--allow-risky`; stalled and
+  prompt-retaining preview models count as risky.
+
 ## [0.2.5] - 2026-10-04
 
 ### Fixed
